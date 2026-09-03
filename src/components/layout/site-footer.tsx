@@ -52,6 +52,9 @@ export function SiteFooter() {
               <Link to="/tra-cuu-don">Tra cứu đơn</Link>
             </li>
             <li>
+              <Link to="/quan-ly">Quản lý đơn hàng</Link>
+            </li>
+            <li>
               <a href={SHOP.facebook} target="_blank" rel="noreferrer">
                 Facebook
               </a>
