@@ -2,6 +2,7 @@
  * Vuon Cua Mit - Webhook + tu dong hoa Google Sheet
  * + GhiChuNoiBo (action=updateInternalNote)
  * + Chan tao don khi chi updateStatus / thieu du lieu khach
+ * + Tim tab DonHang/Bang_2 linh hoat, parse form + query param
  *****************************************************************/
 var ALERT_EMAIL = "trixd2026@gmail.com";
 var LOW_STOCK_THRESHOLD = 3;
@@ -74,14 +75,15 @@ function updateOrderInternalNote_(sheet, orderId, note) {
   var lastRow = sheet.getLastRow();
   if (lastRow < 2) return false;
   var ids = sheet.getRange(2, idCol + 1, lastRow, idCol + 1).getValues();
-  var want = String(orderId || "").trim();
+  var want = String(orderId || "").trim().toLowerCase();
+  var found = 0;
   for (var r = 0; r < ids.length; r++) {
-    if (String(ids[r][0] || "").trim() === want) {
+    if (String(ids[r][0] || "").trim().toLowerCase() === want) {
       sheet.getRange(r + 2, noteCol + 1).setValue(String(note || ""));
-      return true;
+      found++;
     }
   }
-  return false;
+  return found > 0;
 }
 
 function jsonOut_(obj) {
@@ -90,15 +92,63 @@ function jsonOut_(obj) {
     .setMimeType(ContentService.MimeType.JSON);
 }
 
+/** Tim tab don hang: ten chi dinh, DonHang, Bang_2, hoac sheet co cot MaDon */
+function findOrdersSheet_(ss, preferredName) {
+  var names = [];
+  if (preferredName && String(preferredName).trim()) names.push(String(preferredName).trim());
+  names = names.concat(["DonHang", "Don hang", "Đơn hàng", "Bang_2", "Bảng_2", "Orders"]);
+  for (var i = 0; i < names.length; i++) {
+    var sh = ss.getSheetByName(names[i]);
+    if (sh) return sh;
+  }
+  var sheets = ss.getSheets();
+  for (var j = 0; j < sheets.length; j++) {
+    var lastCol = sheets[j].getLastColumn();
+    if (lastCol < 2) continue;
+    var h = sheets[j].getRange(1, 1, 1, lastCol).getValues()[0];
+    var lower = h.map(function (x) { return String(x || "").toLowerCase().replace(/\s+/g, ""); });
+    if (lower.indexOf("madon") >= 0 || lower.indexOf("orderid") >= 0) return sheets[j];
+  }
+  return null;
+}
+
+function parsePostData_(e) {
+  var data = {};
+  var raw = (e && e.postData && e.postData.contents) ? e.postData.contents : "";
+  var ctype = (e && e.postData && e.postData.type) ? String(e.postData.type) : "";
+  if (raw) {
+    try {
+      if (ctype.indexOf("application/json") >= 0 || raw.trim().charAt(0) === "{") {
+        data = JSON.parse(raw);
+      } else {
+        var parts = raw.split("&");
+        for (var i = 0; i < parts.length; i++) {
+          var kv = parts[i].split("=");
+          if (kv.length >= 2) {
+            data[decodeURIComponent(kv[0].replace(/\+/g, " "))] =
+              decodeURIComponent(kv.slice(1).join("=").replace(/\+/g, " "));
+          }
+        }
+      }
+    } catch (err) {
+      try { data = JSON.parse(raw); } catch (e2) { data = {}; }
+    }
+  }
+  if (e && e.parameter) {
+    var keys = Object.keys(e.parameter);
+    for (var k = 0; k < keys.length; k++) {
+      var key = keys[k];
+      if (data[key] === undefined || data[key] === null || data[key] === "") {
+        data[key] = e.parameter[key];
+      }
+    }
+  }
+  return data;
+}
+
 function doPost(e) {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
-  var raw = (e && e.postData && e.postData.contents) ? e.postData.contents : "{}";
-  var data = {};
-  try {
-    data = JSON.parse(raw);
-  } catch (err) {
-    data = {};
-  }
+  var data = parsePostData_(e);
 
   var action = String(
     (data && data.action) ||
@@ -106,35 +156,39 @@ function doPost(e) {
     ""
   ).trim();
 
-  if (data._vcmUpdateOnly) {
-    if (!action) action = data.internalNote !== undefined ? "updateInternalNote" : "updateStatus";
+  if (data._vcmUpdateOnly === true || data._vcmUpdateOnly === "true" || data._vcmUpdateOnly === "1") {
+    if (!action) {
+      action = (data.internalNote !== undefined) ? "updateInternalNote" : "updateStatus";
+    }
   }
 
   var hasCustomer = !!(String(data.phone || "").trim() || String(data.name || "").trim());
   var hasItems = !!(String(data.items || "").trim() || String(data.itemsJson || "").trim());
+  var hasOrderId = !!(String(data.orderId || "").trim());
+  var hasStatusField = (data.status !== undefined && data.status !== null && String(data.status) !== "");
+  var hasNoteField = (data.internalNote !== undefined);
 
-  if (
-    !action &&
-    data.orderId &&
-    (data.status !== undefined && data.status !== null && String(data.status) !== "") &&
-    !hasCustomer &&
-    !hasItems
-  ) {
-    action = "updateStatus";
+  if (!action && hasOrderId && !hasCustomer && !hasItems) {
+    if (hasNoteField && !hasStatusField) action = "updateInternalNote";
+    else if (hasStatusField) action = "updateStatus";
+    else if (hasNoteField) action = "updateInternalNote";
   }
 
+  var preferredSheet = data.ordersSheetName || data.sheetName || "";
+
   if (action === "updateStatus") {
-    var ordersUp = ss.getSheetByName("DonHang");
-    if (!ordersUp) return jsonOut_({ ok: false, error: "Khong co tab DonHang" });
-    var okUp = updateOrderStatus_(ordersUp, data.orderId, data.status || "Moi");
-    return jsonOut_({ ok: okUp, action: "updateStatus", updated: okUp });
+    var ordersUp = findOrdersSheet_(ss, preferredSheet);
+    if (!ordersUp) return jsonOut_({ ok: false, error: "Khong tim thay tab don hang (DonHang / Bang_2)" });
+    var st = String(data.status || "Mới").trim() || "Mới";
+    var okUp = updateOrderStatus_(ordersUp, data.orderId, st);
+    return jsonOut_({ ok: okUp, action: "updateStatus", updated: okUp, sheet: ordersUp.getName() });
   }
 
   if (action === "updateInternalNote") {
-    var ordersNote = ss.getSheetByName("DonHang");
-    if (!ordersNote) return jsonOut_({ ok: false, error: "Khong co tab DonHang" });
+    var ordersNote = findOrdersSheet_(ss, preferredSheet);
+    if (!ordersNote) return jsonOut_({ ok: false, error: "Khong tim thay tab don hang (DonHang / Bang_2)" });
     var okNote = updateOrderInternalNote_(ordersNote, data.orderId, data.internalNote || "");
-    return jsonOut_({ ok: okNote, action: "updateInternalNote" });
+    return jsonOut_({ ok: okNote, action: "updateInternalNote", sheet: ordersNote.getName() });
   }
 
   if (action) {
@@ -147,8 +201,14 @@ function doPost(e) {
       error: "Thieu du lieu don hang — khong tao don moi"
     });
   }
+  if (hasOrderId && !hasCustomer) {
+    return jsonOut_({
+      ok: false,
+      error: "Thieu ten/SĐT khách — khong tao don moi (co the la updateStatus bi loi)"
+    });
+  }
 
-  var orders = ss.getSheetByName("DonHang");
+  var orders = findOrdersSheet_(ss, preferredSheet);
   if (!orders) {
     orders = ss.insertSheet("DonHang");
     orders.appendRow([
@@ -417,7 +477,7 @@ function fillMissingOrderStatus() {
 function sendDailyOrderSummary() {
   var to = getAlertEmail_();
   if (!to) return;
-  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("DonHang");
+  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("DonHang") || findOrdersSheet_(SpreadsheetApp.getActiveSpreadsheet(), "");
   if (!sheet || sheet.getLastRow() < 2) {
     MailApp.sendEmail({ to: to, subject: "[" + SHOP_NAME + "] Tom tat don: khong co don", body: "Khong co du lieu.\n" + new Date().toLocaleString("vi-VN", { timeZone: "Asia/Ho_Chi_Minh" }) });
     return;
@@ -443,15 +503,14 @@ function sendDailyOrderSummary() {
   }
   MailApp.sendEmail({
     to: to,
-    subject: "[" + SHOP_NAME + "] Tom tat " + count + " don — " + Utilities.formatDate(today, tz, "dd/MM"),
-    body: "So don: " + count + "\n\n" + (lines.length ? lines.join("\n") : "(Khong co don)") + "\n",
+    subject: "[" + SHOP_NAME + "] Tom tat don hom nay: " + count + " don",
+    body: "Ngay: " + todayStr + "\nSo don: " + count + "\n\n" + lines.join("\n")
   });
 }
 
 function createDailySummaryTrigger() {
   removeDailySummaryTriggers();
-  ScriptApp.newTrigger("sendDailyOrderSummary").timeBased().atHour(20).everyDays(1).inTimezone("Asia/Ho_Chi_Minh").create();
-  SpreadsheetApp.getUi().alert("Da hen 20:00 (gio VN) email tom tat don.");
+  ScriptApp.newTrigger("sendDailyOrderSummary").timeBased().atHour(20).everyDays(1).create();
 }
 
 function removeDailySummaryTriggers() {
@@ -462,10 +521,13 @@ function removeDailySummaryTriggers() {
 }
 
 function runStockCheckNow() {
-  var productSheet = findProductSheet_(SpreadsheetApp.getActiveSpreadsheet());
-  if (!productSheet) { SpreadsheetApp.getUi().alert("Khong tim thay tab san pham."); return; }
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var productSheet = findProductSheet_(ss);
+  if (!productSheet) {
+    SpreadsheetApp.getUi().alert("Khong tim thay sheet san pham");
+    return;
+  }
   var alerts = scanLowStock_(productSheet);
-  if (!alerts.length) { SpreadsheetApp.getUi().alert("Ton kho OK."); return; }
-  sendStockAlertEmail_(alerts, "Kiem tra thu cong");
-  SpreadsheetApp.getUi().alert("Da gui email: " + alerts.length + " mon.");
+  if (alerts.length) sendStockAlertEmail_(alerts, "kiem tra thu cong");
+  SpreadsheetApp.getUi().alert("Da kiem tra: " + alerts.length + " canh bao");
 }
