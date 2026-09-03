@@ -77,6 +77,8 @@ export function customerZaloUrl(phone: string) {
   const digits = phone.replace(/\D/g, "");
   let n = digits;
   if (n.startsWith("84") && n.length >= 10) n = "0" + n.slice(2);
+  // Sheet mất 0 đầu → 9 số bắt đầu 3/5/7/8/9
+  if (/^[35789]\d{8}$/.test(n)) n = "0" + n;
   if (n.length >= 9 && n.length <= 11) return `https://zalo.me/${n}`;
   return SHOP.zalo;
 }
@@ -85,6 +87,7 @@ export function customerTelUrl(phone: string) {
   const digits = phone.replace(/\D/g, "");
   let n = digits;
   if (n.startsWith("84") && n.length >= 10) n = "0" + n.slice(2);
+  if (/^[35789]\d{8}$/.test(n)) n = "0" + n;
   if (n.length >= 9) return `tel:${n}`;
   return `tel:${SHOP.phone}`;
 }

@@ -54,10 +54,16 @@ export function orderStatusTone(
 }
 
 export function normalizePhone(raw: string): string {
-  let s = raw.replace(/[^\d+]/g, "");
+  let s = String(raw ?? "").replace(/[^\d+]/g, "");
+  if (!s) return "";
+  // +84 / 84 → 0…
   if (s.startsWith("+84")) s = "0" + s.slice(3);
   else if (s.startsWith("84") && s.length >= 10) s = "0" + s.slice(2);
-  s = s.replace(/^0+/, "0");
+  // Google Sheet cột số: mất số 0 đầu (0979… → 979…)
+  // SĐT di động VN 10 số: 03/05/07/08/09
+  if (/^[35789]\d{8}$/.test(s)) s = "0" + s;
+  // Gộp nhiều 0 đầu thành một
+  if (s.startsWith("0")) s = "0" + s.replace(/^0+/, "");
   return s;
 }
 
@@ -126,7 +132,7 @@ export function ordersFromCsv(text: string): ShopOrder[] {
       time: o.time ?? "",
       orderId: o.orderId ?? "",
       name: o.name ?? "",
-      phone: o.phone ?? "",
+      phone: normalizePhone(o.phone ?? ""),
       address: o.address ?? "",
       note: o.note ?? "",
       internalNote: o.internalNote ?? "",
