@@ -301,3 +301,30 @@ export const updateOrderInternalNote = createServerFn({ method: "POST" })
     });
     return { ok: result.ok, error: result.error };
   });
+
+export type UpdateOrderCustomerInput = {
+  webhookUrl: string;
+  orderId: string;
+  phone?: string;
+  address?: string;
+  note?: string;
+  name?: string;
+  ordersSheetName?: string;
+};
+
+export const updateOrderCustomer = createServerFn({ method: "POST" })
+  .validator((input: UpdateOrderCustomerInput) => input)
+  .handler(async ({ data }): Promise<{ ok: boolean; error?: string }> => {
+    const webhookUrl = data.webhookUrl.trim();
+    if (!webhookUrl) return { ok: false, error: "Chưa cấu hình webhook" };
+    if (!data.orderId?.trim()) return { ok: false, error: "Thiếu mã đơn" };
+    const result = await postWebhookUpdate(webhookUrl, "updateOrderInfo", {
+      orderId: data.orderId.trim(),
+      phone: data.phone ?? "",
+      address: data.address ?? "",
+      note: data.note ?? "",
+      name: data.name ?? "",
+      ordersSheetName: (data.ordersSheetName || "").trim(),
+    });
+    return { ok: result.ok, error: result.error };
+  });
