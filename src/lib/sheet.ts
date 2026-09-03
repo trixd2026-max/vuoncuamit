@@ -85,6 +85,14 @@ export const fetchCatalog = createServerFn({ method: "POST" })
     };
   });
 
+export type OrderLinePayload = {
+  productId: string;
+  name: string;
+  qty: number;
+  unit: string;
+  price: number;
+};
+
 export type OrderPayload = {
   orderId: string;
   name: string;
@@ -93,18 +101,13 @@ export type OrderPayload = {
   note: string;
   total: number;
   items: string;
-  type?: string;
-  status?: string;
-  itemsJson?: string;
-};
-
-export type SubmitOrderInput = {
-  webhookUrl: string;
-  order: OrderPayload;
+  itemsJson: string;
+  type: string;
+  createdAt: string;
 };
 
 export const submitSheetOrder = createServerFn({ method: "POST" })
-  .validator((input: SubmitOrderInput) => input)
+  .validator((input: { webhookUrl: string; order: OrderPayload }) => input)
   .handler(async ({ data }): Promise<{ saved: boolean; error?: string }> => {
     const webhookUrl = data.webhookUrl.trim();
     if (!webhookUrl) return { saved: false, error: "Chưa cấu hình webhook" };
@@ -115,20 +118,14 @@ export const submitSheetOrder = createServerFn({ method: "POST" })
         body: JSON.stringify(data.order),
         redirect: "follow",
       });
-      const text = await res.text();
-      try {
-        const json = JSON.parse(text) as { ok?: boolean; error?: string };
-        if (json.ok === true) return { saved: true };
-        if (json.ok === false) return { saved: false, error: json.error || "Webhook từ chối" };
-      } catch {
-        /* ignore */
+      if (!res.ok) {
+        return { saved: false, error: `Sheet trả ${res.status}` };
       }
-      if (res.ok) return { saved: true };
-      return { saved: false, error: `Webhook ${res.status}` };
+      return { saved: true };
     } catch (err) {
       return {
         saved: false,
-        error: err instanceof Error ? err.message : "Không gọi được webhook",
+        error: err instanceof Error ? err.message : "Không ghi được đơn vào Sheet",
       };
     }
   });
@@ -186,23 +183,36 @@ export const lookupOrders = createServerFn({ method: "POST" })
     }
     return {
       orders: [],
-      warning: errors[0] ?? "Không tải được log đơn.",
+      warning: errors[0] ?? "Không tải được log đơn",
     };
   });
+
+function withWebhookAction(url: string, action: string): string {
+  try {
+    const u = new URL(url);
+    u.searchParams.set("action", action);
+    return u.toString();
+  } catch {
+    const join = url.includes("?") ? "&" : "?";
+    return `${url}${join}action=${encodeURIComponent(action)}`;
+  }
+}
 
 async function postWebhookUpdate(
   webhookUrl: string,
   action: string,
-  body: Record<string, string>,
+  payload: Record<string, string>,
 ): Promise<{ ok: boolean; error?: string; raw?: string }> {
+  const target = withWebhookAction(webhookUrl, action);
+  const bodyObj = { ...payload, action, _vcmUpdateOnly: true };
   try {
-    const res = await fetch(webhookUrl, {
+    const res = await fetch(target, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         "X-Vcm-Action": action,
       },
-      body: JSON.stringify({ action, ...body }),
+      body: JSON.stringify(bodyObj),
       redirect: "follow",
     });
     const text = await res.text();
@@ -214,11 +224,11 @@ async function postWebhookUpdate(
     } catch {
       /* ignore */
     }
-    // Fallback form-urlencoded (Apps Script đôi khi mất body JSON sau redirect)
     const form = new URLSearchParams();
     form.set("action", action);
-    for (const [k, v] of Object.entries(body)) form.set(k, v ?? "");
-    const res2 = await fetch(webhookUrl, {
+    for (const [k, v] of Object.entries(payload)) form.set(k, v ?? "");
+    form.set("_vcmUpdateOnly", "1");
+    const res2 = await fetch(target, {
       method: "POST",
       headers: {
         "Content-Type": "application/x-www-form-urlencoded",
