@@ -1,6 +1,7 @@
 /*****************************************************************
  * Vuon Cua Mit - Webhook + tu dong hoa Google Sheet
  * + GhiChuNoiBo (action=updateInternalNote)
+ * + Chan tao don khi chi updateStatus / thieu du lieu khach
  *****************************************************************/
 var ALERT_EMAIL = "trixd2026@gmail.com";
 var LOW_STOCK_THRESHOLD = 3;
@@ -82,26 +83,52 @@ function updateOrderInternalNote_(sheet, orderId, note) {
   return false;
 }
 
+function jsonOut_(obj) {
+  return ContentService
+    .createTextOutput(JSON.stringify(obj))
+    .setMimeType(ContentService.MimeType.JSON);
+}
+
 function doPost(e) {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
-  var data = JSON.parse(e.postData.contents);
-
-  if (data.action === "updateStatus") {
-    var ordersUp = ss.getSheetByName("DonHang");
-    if (!ordersUp) {
-      return ContentService.createTextOutput(JSON.stringify({ ok: false, error: "Khong co tab DonHang" })).setMimeType(ContentService.MimeType.JSON);
-    }
-    var okUp = updateOrderStatus_(ordersUp, data.orderId, data.status || "Moi");
-    return ContentService.createTextOutput(JSON.stringify({ ok: okUp })).setMimeType(ContentService.MimeType.JSON);
+  var raw = (e && e.postData && e.postData.contents) ? e.postData.contents : "{}";
+  var data;
+  try {
+    data = JSON.parse(raw);
+  } catch (err) {
+    return jsonOut_({ ok: false, error: "JSON khong hop le" });
   }
 
-  if (data.action === "updateInternalNote") {
+  var action = String(data.action || "").trim();
+
+  // --- Chi cap nhat, KHONG tao don moi ---
+  if (action === "updateStatus") {
+    var ordersUp = ss.getSheetByName("DonHang");
+    if (!ordersUp) return jsonOut_({ ok: false, error: "Khong co tab DonHang" });
+    var okUp = updateOrderStatus_(ordersUp, data.orderId, data.status || "Moi");
+    return jsonOut_({ ok: okUp, action: "updateStatus" });
+  }
+
+  if (action === "updateInternalNote") {
     var ordersNote = ss.getSheetByName("DonHang");
-    if (!ordersNote) {
-      return ContentService.createTextOutput(JSON.stringify({ ok: false, error: "Khong co tab DonHang" })).setMimeType(ContentService.MimeType.JSON);
-    }
+    if (!ordersNote) return jsonOut_({ ok: false, error: "Khong co tab DonHang" });
     var okNote = updateOrderInternalNote_(ordersNote, data.orderId, data.internalNote || "");
-    return ContentService.createTextOutput(JSON.stringify({ ok: okNote })).setMimeType(ContentService.MimeType.JSON);
+    return jsonOut_({ ok: okNote, action: "updateInternalNote" });
+  }
+
+  // Action la la: tu choi, khong ghi don
+  if (action) {
+    return jsonOut_({ ok: false, error: "Action khong ho tro: " + action });
+  }
+
+  // Chan payload chi co orderId+status (tu /quan-ly) — khong duoc tao don moi
+  var hasCustomer = !!(String(data.phone || "").trim() || String(data.name || "").trim());
+  var hasItems = !!(String(data.items || "").trim() || String(data.itemsJson || "").trim());
+  if (!hasCustomer && !hasItems) {
+    return jsonOut_({
+      ok: false,
+      error: "Thieu du lieu don hang — khong tao don moi"
+    });
   }
 
   var orders = ss.getSheetByName("DonHang");
@@ -157,7 +184,7 @@ function doPost(e) {
     if (alerts.length > 0) sendStockAlertEmail_(alerts, data.orderId || "");
   } catch (err2) { Logger.log("stock email error: " + err2); }
 
-  return ContentService.createTextOutput(JSON.stringify({ ok: true, alerts: alerts.length })).setMimeType(ContentService.MimeType.JSON);
+  return jsonOut_({ ok: true, alerts: alerts.length });
 }
 
 function sendOrderEmail_(data) {
@@ -388,7 +415,7 @@ function sendDailyOrderSummary() {
   var idCol = findHeaderCol_(sheet, ["madon", "ma_don", "orderid"]);
   if (timeCol < 0) timeCol = 0;
   if (idCol < 0) idCol = 1;
-  var lines = [], count = 0, sum = 0;
+  var lines = [], count = 0;
   for (var r = 0; r < data.length; r++) {
     var cell = data[r][timeCol];
     var d = cell instanceof Date ? cell : new Date(cell);
