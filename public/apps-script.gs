@@ -3,10 +3,32 @@
  * + GhiChuNoiBo (action=updateInternalNote)
  * + Chan tao don khi chi updateStatus / thieu du lieu khach
  * + Tim tab DonHang/Bang_2 linh hoat, parse form + query param
+ * + Ghi SĐT dạng text (asPhoneText_) giữ số 0 đầu
  *****************************************************************/
 var ALERT_EMAIL = "trixd2026@gmail.com";
 var LOW_STOCK_THRESHOLD = 3;
 var SHOP_NAME = "Vuon Cua Mit";
+
+/** Ghi SĐT dạng text để không mất số 0 đầu (Sheets hay format Number). */
+function asPhoneText_(phone) {
+  var s = String(phone == null ? "" : phone).replace(/[^\d+]/g, "");
+  if (!s) return "";
+  if (s.indexOf("+84") === 0) s = "0" + s.slice(3);
+  else if (s.indexOf("84") === 0 && s.length >= 10) s = "0" + s.slice(2);
+  if (/^[35789]\d{8}$/.test(s)) s = "0" + s;
+  if (s.charAt(0) === "0") s = "0" + s.replace(/^0+/, "");
+  // Apostrophe buộc Sheets lưu text
+  return "'" + s;
+}
+
+function ensurePhoneColumnText_(sheet) {
+  var col = findHeaderCol_(sheet, ["dienthoai", "dien_thoai", "phone", "sdt"]);
+  if (col < 0) return;
+  var lastRow = Math.max(sheet.getLastRow(), 2);
+  try {
+    sheet.getRange(2, col + 1, lastRow, col + 1).setNumberFormat("@");
+  } catch (e) { /* ignore */ }
+}
 
 function findHeaderCol_(sheet, names) {
   var lastCol = Math.max(sheet.getLastColumn(), 1);
@@ -218,6 +240,7 @@ function doPost(e) {
   } else {
     ensureOrderStatusColumn_(orders);
     ensureInternalNoteColumn_(orders);
+    ensurePhoneColumnText_(orders);
   }
 
   var lastCol = Math.max(orders.getLastColumn(), 10);
@@ -228,7 +251,7 @@ function doPost(e) {
     if (h === "thoigian" || h === "thoi_gian" || h === "time") row.push(new Date());
     else if (h === "madon" || h === "ma_don" || h === "orderid" || h === "order_id") row.push(data.orderId || "");
     else if (h === "ten" || h === "name") row.push(data.name || "");
-    else if (h === "dienthoai" || h === "dien_thoai" || h === "phone" || h === "sdt") row.push(data.phone || "");
+    else if (h === "dienthoai" || h === "dien_thoai" || h === "phone" || h === "sdt") row.push(asPhoneText_(data.phone));
     else if (h === "diachi" || h === "dia_chi" || h === "address") row.push(data.address || "");
     else if (h === "ghichu" || h === "ghi_chu" || h === "note") row.push(data.note || "");
     else if (h === "tongtien" || h === "tong_tien" || h === "total") row.push(data.total || "");
@@ -240,7 +263,7 @@ function doPost(e) {
   }
   if (row.length === 0) {
     orders.appendRow([
-      new Date(), data.orderId, data.name, data.phone, data.address,
+      new Date(), data.orderId, data.name, asPhoneText_(data.phone), data.address,
       data.note, data.total, data.items, data.type, data.status || "Moi", ""
     ]);
   } else {
@@ -413,6 +436,7 @@ function setupShopSheets() {
   ensureOrderHeaders_(orders);
   ensureOrderStatusColumn_(orders);
   ensureInternalNoteColumn_(orders);
+  ensurePhoneColumnText_(orders);
   fillMissingOrderStatus();
   applyStatusDropdown_(orders);
   applyStatusColors();
@@ -441,76 +465,83 @@ function applyStatusDropdown_(sheet) {
   sheet.getRange(2, statusCol + 1, Math.max(lastRow, 500), statusCol + 1).setDataValidation(rule);
 }
 
-function applyStatusColors() {
-  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("DonHang");
+function fillMissingOrderStatus() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = findOrdersSheet_(ss, "");
   if (!sheet) return;
   var statusCol = ensureOrderStatusColumn_(sheet);
-  var range = sheet.getRange(2, statusCol + 1, 1000, 1);
-  range.clearFormat();
-  function colorRule(text, bg, fg) {
-    return SpreadsheetApp.newConditionalFormatRule().whenTextEqualTo(text).setBackground(bg).setFontColor(fg).setRanges([range]).build();
+  var lastRow = sheet.getLastRow();
+  if (lastRow < 2) return;
+  var vals = sheet.getRange(2, statusCol + 1, lastRow, statusCol + 1).getValues();
+  for (var r = 0; r < vals.length; r++) {
+    if (!String(vals[r][0] || "").trim()) sheet.getRange(r + 2, statusCol + 1).setValue("Mới");
   }
-  var rules = [
-    colorRule("Mới", "#dbeafe", "#1e3a8a"), colorRule("Moi", "#dbeafe", "#1e3a8a"),
-    colorRule("Đã xác nhận", "#fef3c7", "#92400e"), colorRule("Da xac nhan", "#fef3c7", "#92400e"),
-    colorRule("Đang giao", "#ffedd5", "#9a3412"), colorRule("Dang giao", "#ffedd5", "#9a3412"),
-    colorRule("Xong", "#d1fae5", "#065f46"), colorRule("Hủy", "#fee2e2", "#991b1b"), colorRule("Huy", "#fee2e2", "#991b1b")
-  ];
-  sheet.setConditionalFormatRules((sheet.getConditionalFormatRules() || []).concat(rules));
 }
 
-function fillMissingOrderStatus() {
-  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("DonHang");
+function applyStatusColors() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = findOrdersSheet_(ss, "");
   if (!sheet) return;
   var statusCol = ensureOrderStatusColumn_(sheet);
   var lastRow = sheet.getLastRow();
   if (lastRow < 2) return;
   var range = sheet.getRange(2, statusCol + 1, lastRow, statusCol + 1);
-  var vals = range.getValues();
-  var changed = 0;
-  for (var i = 0; i < vals.length; i++) {
-    if (!String(vals[i][0] || "").trim()) { vals[i][0] = "Mới"; changed++; }
+  var rules = [];
+  function add(text, bg) {
+    rules.push(SpreadsheetApp.newConditionalFormatRule()
+      .whenTextEqualTo(text).setBackground(bg).setRanges([range]).build());
   }
-  if (changed) range.setValues(vals);
+  add("Mới", "#fff3cd");
+  add("Moi", "#fff3cd");
+  add("Đã xác nhận", "#cfe2ff");
+  add("Đang giao", "#ffe0b2");
+  add("Xong", "#d1e7dd");
+  add("Hủy", "#f8d7da");
+  sheet.setConditionalFormatRules(rules);
 }
 
 function sendDailyOrderSummary() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = findOrdersSheet_(ss, "");
+  if (!sheet) return;
+  var lastRow = sheet.getLastRow();
+  if (lastRow < 2) return;
+  var lastCol = sheet.getLastColumn();
+  var data = sheet.getRange(2, 1, lastRow, lastCol).getValues();
+  var headers = sheet.getRange(1, 1, 1, lastCol).getValues()[0].map(function (h) {
+    return String(h || "").toLowerCase().replace(/\s+/g, "");
+  });
+  var timeCol = headers.indexOf("thoigian"); if (timeCol < 0) timeCol = 0;
+  var idCol = headers.indexOf("madon"); if (idCol < 0) idCol = 1;
+  var phoneCol = headers.indexOf("dienthoai"); if (phoneCol < 0) phoneCol = 3;
+  var totalCol = headers.indexOf("tongtien"); if (totalCol < 0) totalCol = 6;
+  var statusCol = headers.indexOf("trangthai"); if (statusCol < 0) statusCol = 9;
+  var today = Utilities.formatDate(new Date(), "Asia/Ho_Chi_Minh", "yyyy-MM-dd");
+  var lines = [];
+  var count = 0;
+  for (var r = 0; r < data.length; r++) {
+    var t = data[r][timeCol];
+    var ds = "";
+    try {
+      if (t instanceof Date) ds = Utilities.formatDate(t, "Asia/Ho_Chi_Minh", "yyyy-MM-dd");
+      else ds = String(t || "").slice(0, 10);
+    } catch (e) {}
+    if (ds !== today && String(t || "").indexOf(today) < 0) continue;
+    count++;
+    lines.push("- " + data[r][idCol] + " | " + data[r][phoneCol] + " | " + data[r][totalCol] + " | " + data[r][statusCol]);
+  }
   var to = getAlertEmail_();
   if (!to) return;
-  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("DonHang") || findOrdersSheet_(SpreadsheetApp.getActiveSpreadsheet(), "");
-  if (!sheet || sheet.getLastRow() < 2) {
-    MailApp.sendEmail({ to: to, subject: "[" + SHOP_NAME + "] Tom tat don: khong co don", body: "Khong co du lieu.\n" + new Date().toLocaleString("vi-VN", { timeZone: "Asia/Ho_Chi_Minh" }) });
-    return;
-  }
-  var lastCol = sheet.getLastColumn();
-  var lastRow = sheet.getLastRow();
-  var data = sheet.getRange(2, 1, lastRow, lastCol).getValues();
-  var today = new Date();
-  var tz = "Asia/Ho_Chi_Minh";
-  var todayStr = Utilities.formatDate(today, tz, "yyyy-MM-dd");
-  var timeCol = findHeaderCol_(sheet, ["thoigian", "thoi_gian", "time"]);
-  var idCol = findHeaderCol_(sheet, ["madon", "ma_don", "orderid"]);
-  if (timeCol < 0) timeCol = 0;
-  if (idCol < 0) idCol = 1;
-  var lines = [], count = 0;
-  for (var r = 0; r < data.length; r++) {
-    var cell = data[r][timeCol];
-    var d = cell instanceof Date ? cell : new Date(cell);
-    if (isNaN(d.getTime())) continue;
-    if (Utilities.formatDate(d, tz, "yyyy-MM-dd") !== todayStr) continue;
-    count++;
-    lines.push("- " + String(data[r][idCol] || ""));
-  }
   MailApp.sendEmail({
     to: to,
-    subject: "[" + SHOP_NAME + "] Tom tat don hom nay: " + count + " don",
-    body: "Ngay: " + todayStr + "\nSo don: " + count + "\n\n" + lines.join("\n")
+    subject: "[" + SHOP_NAME + "] Tom tat don " + today + " (" + count + " don)",
+    body: "Hom nay co " + count + " don:\n\n" + lines.join("\n")
   });
 }
 
 function createDailySummaryTrigger() {
   removeDailySummaryTriggers();
-  ScriptApp.newTrigger("sendDailyOrderSummary").timeBased().atHour(20).everyDays(1).create();
+  ScriptApp.newTrigger("sendDailyOrderSummary").timeBased().atHour(20).everyDays(1).inTimezone("Asia/Ho_Chi_Minh").create();
 }
 
 function removeDailySummaryTriggers() {
@@ -528,6 +559,10 @@ function runStockCheckNow() {
     return;
   }
   var alerts = scanLowStock_(productSheet);
-  if (alerts.length) sendStockAlertEmail_(alerts, "kiem tra thu cong");
-  SpreadsheetApp.getUi().alert("Da kiem tra: " + alerts.length + " canh bao");
+  if (alerts.length === 0) {
+    SpreadsheetApp.getUi().alert("Ton kho OK");
+    return;
+  }
+  sendStockAlertEmail_(alerts, "Kiem tra thu cong");
+  SpreadsheetApp.getUi().alert("Da gui canh bao: " + alerts.length + " mat hang");
 }
