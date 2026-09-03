@@ -223,3 +223,43 @@ export const updateOrderStatus = createServerFn({ method: "POST" })
       };
     }
   });
+
+export type UpdateOrderInternalNoteInput = {
+  webhookUrl: string;
+  orderId: string;
+  internalNote: string;
+};
+
+export const updateOrderInternalNote = createServerFn({ method: "POST" })
+  .validator((input: UpdateOrderInternalNoteInput) => input)
+  .handler(async ({ data }): Promise<{ ok: boolean; error?: string }> => {
+    const webhookUrl = data.webhookUrl.trim();
+    if (!webhookUrl) return { ok: false, error: "Chưa cấu hình webhook" };
+    if (!data.orderId?.trim()) return { ok: false, error: "Thiếu mã đơn" };
+    try {
+      const res = await fetch(webhookUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "updateInternalNote",
+          orderId: data.orderId.trim(),
+          internalNote: data.internalNote ?? "",
+        }),
+        redirect: "follow",
+      });
+      const text = await res.text();
+      try {
+        const json = JSON.parse(text) as { ok?: boolean; error?: string };
+        if (json.ok) return { ok: true };
+        return { ok: false, error: json.error || "Không lưu được ghi chú" };
+      } catch {
+        if (res.ok || text.includes("ok")) return { ok: true };
+        return { ok: false, error: `Sheet trả ${res.status}` };
+      }
+    } catch (err) {
+      return {
+        ok: false,
+        error: err instanceof Error ? err.message : "Không lưu được ghi chú",
+      };
+    }
+  });
