@@ -519,7 +519,7 @@ function printOrdersList(list: ShopOrder[], filterDate: string) {
       <td style="text-align:right">${esc(formatOrderTotal(o.total))}</td>
       <td>${esc(normalizeOrderStatus(o.status))}</td>
     </tr>`).join("");
-  const html = `<!doctype html><html lang="vi"><head><meta charset="utf-8"/><title>Đơn hàng ${esc(day)}</title>
+  const html = `<!doctype html><html lang="vi"><head><meta charset="utf-8"/><title>Don hang ${esc(day)}</title>
     <style>
       body{font-family:system-ui,sans-serif;padding:16px;color:#111}
       h1{font-size:18px;margin:0 0 4px}
@@ -529,26 +529,30 @@ function printOrdersList(list: ShopOrder[], filterDate: string) {
       th{background:#f3f4f6;text-align:left}
       @media print{button{display:none}}
     </style></head><body>
-    <h1>Vườn Của Mít — Danh sách đơn</h1>
-    <p>Ngày lọc: ${esc(day)} · ${list.length} đơn · In lúc ${new Date().toLocaleString("vi-VN")}</p>
+    <h1>Vuon Cua Mit — Danh sach don</h1>
+    <p>Ngay loc: ${esc(day)} · ${list.length} don · In luc ${new Date().toLocaleString("vi-VN")}</p>
     <table>
-      <thead><tr><th>Thời gian</th><th>Mã đơn</th><th>Tên</th><th>SĐT</th><th>Chi tiết</th><th>Tổng</th><th>Trạng thái</th></tr></thead>
+      <thead><tr><th>Thoi gian</th><th>Ma don</th><th>Ten</th><th>SDT</th><th>Chi tiet</th><th>Tong</th><th>Trang thai</th></tr></thead>
       <tbody>${rows}</tbody>
     </table>
     <script>window.onload=()=>window.print()</script>
     </body></html>`;
   const w = window.open("", "_blank", "noopener,noreferrer,width=900,height=700");
-  if (!w) { toast.error("Trình duyệt chặn cửa sổ in"); return; }
+  if (!w) { toast.error("Trinh duyet chan cua so in"); return; }
   w.document.write(html);
   w.document.close();
 }
 
 function esc(s: string) {
+  const amp = String.fromCharCode(38) + "amp;";
+  const lt = String.fromCharCode(38) + "lt;";
+  const gt = String.fromCharCode(38) + "gt;";
+  const quot = String.fromCharCode(38) + "quot;";
   return String(s ?? "")
-    .replace(/&/g, "&")
-    .replace(/</g, "<")
-    .replace(/>/g, ">")
-    .replace(/"/g, """);
+    .replace(/&/g, amp)
+    .replace(/</g, lt)
+    .replace(/>/g, gt)
+    .replace(/"/g, quot);
 }
 
 function Field({ label, children }: { label: string; children: ReactNode }) {
