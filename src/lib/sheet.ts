@@ -184,12 +184,6 @@ export const lookupOrders = createServerFn({ method: "POST" })
     return { orders: [], warning: errors[0] ?? "Không tải được đơn hàng" };
   });
 
-export type UpdateOrderStatusInput = {
-  webhookUrl: string;
-  orderId: string;
-  status: string;
-};
-
 function withWebhookAction(url: string, action: string): string {
   try {
     const u = new URL(url);
@@ -201,62 +195,99 @@ function withWebhookAction(url: string, action: string): string {
   }
 }
 
+async function postWebhookUpdate(
+  webhookUrl: string,
+  action: string,
+  payload: Record<string, string | boolean>,
+): Promise<{ ok: boolean; error?: string; raw?: string }> {
+  const target = withWebhookAction(webhookUrl, action);
+  const bodyObj = { ...payload, action, _vcmUpdateOnly: true };
+  // 1) JSON
+  try {
+    const res = await fetch(target, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Vcm-Action": action,
+      },
+      body: JSON.stringify(bodyObj),
+      redirect: "follow",
+    });
+    const text = await res.text();
+    try {
+      const json = JSON.parse(text) as { ok?: boolean; error?: string };
+      if (json.ok === true) return { ok: true, raw: text };
+      if (json.ok === false) return { ok: false, error: json.error || "Webhook từ chối", raw: text };
+    } catch {
+      /* fall through to form */
+    }
+  } catch {
+    /* fall through */
+  }
+  // 2) form-urlencoded (GAS ổn định hơn khi redirect)
+  try {
+    const form = new URLSearchParams();
+    for (const [k, v] of Object.entries(bodyObj)) {
+      form.set(k, String(v));
+    }
+    const res2 = await fetch(target, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+        "X-Vcm-Action": action,
+      },
+      body: form.toString(),
+      redirect: "follow",
+    });
+    const text2 = await res2.text();
+    try {
+      const json2 = JSON.parse(text2) as { ok?: boolean; error?: string };
+      if (json2.ok === true) return { ok: true, raw: text2 };
+      if (json2.ok === false)
+        return { ok: false, error: json2.error || "Webhook từ chối", raw: text2 };
+    } catch {
+      /* ignore */
+    }
+    return {
+      ok: false,
+      error:
+        "Webhook chưa deploy bản mới (hoặc URL sai). Vào /quan-ly → Copy mã Apps Script → Deploy Version New",
+      raw: text2,
+    };
+  } catch (err) {
+    return {
+      ok: false,
+      error: err instanceof Error ? err.message : "Không gọi được webhook",
+    };
+  }
+}
+
+export type UpdateOrderStatusInput = {
+  webhookUrl: string;
+  orderId: string;
+  status: string;
+  ordersSheetName?: string;
+};
+
 export const updateOrderStatus = createServerFn({ method: "POST" })
   .validator((input: UpdateOrderStatusInput) => input)
   .handler(async ({ data }): Promise<{ ok: boolean; error?: string }> => {
     const webhookUrl = data.webhookUrl.trim();
     if (!webhookUrl) return { ok: false, error: "Chưa cấu hình webhook" };
     if (!data.orderId?.trim()) return { ok: false, error: "Thiếu mã đơn" };
-    const target = withWebhookAction(webhookUrl, "updateStatus");
-    try {
-      const res = await fetch(target, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "X-Vcm-Action": "updateStatus",
-        },
-        body: JSON.stringify({
-          action: "updateStatus",
-          orderId: data.orderId.trim(),
-          status: data.status.trim() || "Moi",
-          _vcmUpdateOnly: true,
-        }),
-        redirect: "follow",
-      });
-      const text = await res.text();
-      try {
-        const json = JSON.parse(text) as {
-          ok?: boolean;
-          error?: string;
-          action?: string;
-        };
-        if (json.ok === true) return { ok: true };
-        if (json.ok === false)
-          return { ok: false, error: json.error || "Không cập nhật được trạng thái" };
-        return {
-          ok: false,
-          error:
-            "Webhook không trả JSON hợp lệ — hãy Deploy lại Apps Script (Version New)",
-        };
-      } catch {
-        return {
-          ok: false,
-          error:
-            "Webhook chưa deploy bản mới (hoặc URL sai). Vào /quan-ly → Copy mã Apps Script → Deploy Version New",
-        };
-      }
-    } catch (err) {
-      return {
-        ok: false,
-        error: err instanceof Error ? err.message : "Không cập nhật được trạng thái",
-      };
-    }
+    const result = await postWebhookUpdate(webhookUrl, "updateStatus", {
+      orderId: data.orderId.trim(),
+      status: data.status.trim() || "Mới",
+      ordersSheetName: (data.ordersSheetName || "").trim(),
+    });
+    return { ok: result.ok, error: result.error };
   });
 
 export type UpdateOrderInternalNoteInput = {
   webhookUrl: string;
   orderId: string;
   internalNote: string;
+  ordersSheetName?: string;
 };
 
 export const updateOrderInternalNote = createServerFn({ method: "POST" })
@@ -265,38 +296,10 @@ export const updateOrderInternalNote = createServerFn({ method: "POST" })
     const webhookUrl = data.webhookUrl.trim();
     if (!webhookUrl) return { ok: false, error: "Chưa cấu hình webhook" };
     if (!data.orderId?.trim()) return { ok: false, error: "Thiếu mã đơn" };
-    const target = withWebhookAction(webhookUrl, "updateInternalNote");
-    try {
-      const res = await fetch(target, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "X-Vcm-Action": "updateInternalNote",
-        },
-        body: JSON.stringify({
-          action: "updateInternalNote",
-          orderId: data.orderId.trim(),
-          internalNote: data.internalNote ?? "",
-          _vcmUpdateOnly: true,
-        }),
-        redirect: "follow",
-      });
-      const text = await res.text();
-      try {
-        const json = JSON.parse(text) as { ok?: boolean; error?: string };
-        if (json.ok === true) return { ok: true };
-        return { ok: false, error: json.error || "Không lưu được ghi chú" };
-      } catch {
-        return {
-          ok: false,
-          error:
-            "Webhook chưa deploy bản mới — Copy mã Apps Script → Deploy Version New",
-        };
-      }
-    } catch (err) {
-      return {
-        ok: false,
-        error: err instanceof Error ? err.message : "Không lưu được ghi chú",
-      };
-    }
+    const result = await postWebhookUpdate(webhookUrl, "updateInternalNote", {
+      orderId: data.orderId.trim(),
+      internalNote: data.internalNote ?? "",
+      ordersSheetName: (data.ordersSheetName || "").trim(),
+    });
+    return { ok: result.ok, error: result.error };
   });
