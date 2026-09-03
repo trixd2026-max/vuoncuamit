@@ -7,6 +7,8 @@ export type ShopOrder = {
   phone: string;
   address: string;
   note: string;
+  /** Ghi chú nội bộ (chỉ shop) — cột Sheet GhiChuNoiBo */
+  internalNote: string;
   total: string;
   items: string;
   type: string;
@@ -88,6 +90,11 @@ const COL_MAP: Record<string, keyof ShopOrder> = {
   ghichu: "note",
   ghi_chu: "note",
   note: "note",
+  ghichunoibo: "internalNote",
+  ghi_chu_noi_bo: "internalNote",
+  internal_note: "internalNote",
+  internalnote: "internalNote",
+  admin_note: "internalNote",
   tongtien: "total",
   tong_tien: "total",
   total: "total",
@@ -122,6 +129,7 @@ export function ordersFromCsv(text: string): ShopOrder[] {
       phone: o.phone ?? "",
       address: o.address ?? "",
       note: o.note ?? "",
+      internalNote: o.internalNote ?? "",
       total: o.total ?? "",
       items: o.items ?? "",
       type: o.type ?? "",
