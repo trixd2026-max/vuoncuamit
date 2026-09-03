@@ -136,7 +136,31 @@ export function ordersFromCsv(text: string): ShopOrder[] {
       status: normalizeOrderStatus(o.status ?? ""),
     });
   }
-  return out.reverse();
+  // Đảo mới nhất trước, rồi gộp trùng MaDon (giữ dòng đủ thông tin nhất)
+  out.reverse();
+  return dedupeOrdersById(out);
+}
+
+/** Giữ 1 dòng / mã đơn — ưu tiên có SĐT, tên, món, tổng tiền */
+export function dedupeOrdersById(orders: ShopOrder[]): ShopOrder[] {
+  const score = (o: ShopOrder) =>
+    (o.phone ? 8 : 0) +
+    (o.name ? 4 : 0) +
+    (o.items ? 2 : 0) +
+    (o.total ? 1 : 0) +
+    (o.address ? 1 : 0);
+  const map = new Map<string, ShopOrder>();
+  for (const o of orders) {
+    const id = (o.orderId || "").trim().toLowerCase();
+    if (!id) {
+      // không có mã: giữ theo key giả
+      map.set(`__${o.time}|${o.phone}|${map.size}`, o);
+      continue;
+    }
+    const prev = map.get(id);
+    if (!prev || score(o) > score(prev)) map.set(id, o);
+  }
+  return [...map.values()];
 }
 
 export function maskWebhookUrl(url: string): string {
