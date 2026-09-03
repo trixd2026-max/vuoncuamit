@@ -56,14 +56,15 @@ function updateOrderStatus_(sheet, orderId, status) {
   var lastRow = sheet.getLastRow();
   if (lastRow < 2) return false;
   var ids = sheet.getRange(2, idCol + 1, lastRow, idCol + 1).getValues();
-  var want = String(orderId || "").trim();
+  var want = String(orderId || "").trim().toLowerCase();
+  var found = 0;
   for (var r = 0; r < ids.length; r++) {
-    if (String(ids[r][0] || "").trim() === want) {
+    if (String(ids[r][0] || "").trim().toLowerCase() === want) {
       sheet.getRange(r + 2, statusCol + 1).setValue(status);
-      return true;
+      found++;
     }
   }
-  return false;
+  return found > 0;
 }
 
 function updateOrderInternalNote_(sheet, orderId, note) {
@@ -92,21 +93,41 @@ function jsonOut_(obj) {
 function doPost(e) {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var raw = (e && e.postData && e.postData.contents) ? e.postData.contents : "{}";
-  var data;
+  var data = {};
   try {
     data = JSON.parse(raw);
   } catch (err) {
-    return jsonOut_({ ok: false, error: "JSON khong hop le" });
+    data = {};
   }
 
-  var action = String(data.action || "").trim();
+  var action = String(
+    (data && data.action) ||
+    (e && e.parameter && e.parameter.action) ||
+    ""
+  ).trim();
 
-  // --- Chi cap nhat, KHONG tao don moi ---
+  if (data._vcmUpdateOnly) {
+    if (!action) action = data.internalNote !== undefined ? "updateInternalNote" : "updateStatus";
+  }
+
+  var hasCustomer = !!(String(data.phone || "").trim() || String(data.name || "").trim());
+  var hasItems = !!(String(data.items || "").trim() || String(data.itemsJson || "").trim());
+
+  if (
+    !action &&
+    data.orderId &&
+    (data.status !== undefined && data.status !== null && String(data.status) !== "") &&
+    !hasCustomer &&
+    !hasItems
+  ) {
+    action = "updateStatus";
+  }
+
   if (action === "updateStatus") {
     var ordersUp = ss.getSheetByName("DonHang");
     if (!ordersUp) return jsonOut_({ ok: false, error: "Khong co tab DonHang" });
     var okUp = updateOrderStatus_(ordersUp, data.orderId, data.status || "Moi");
-    return jsonOut_({ ok: okUp, action: "updateStatus" });
+    return jsonOut_({ ok: okUp, action: "updateStatus", updated: okUp });
   }
 
   if (action === "updateInternalNote") {
@@ -116,14 +137,10 @@ function doPost(e) {
     return jsonOut_({ ok: okNote, action: "updateInternalNote" });
   }
 
-  // Action la la: tu choi, khong ghi don
   if (action) {
     return jsonOut_({ ok: false, error: "Action khong ho tro: " + action });
   }
 
-  // Chan payload chi co orderId+status (tu /quan-ly) — khong duoc tao don moi
-  var hasCustomer = !!(String(data.phone || "").trim() || String(data.name || "").trim());
-  var hasItems = !!(String(data.items || "").trim() || String(data.itemsJson || "").trim());
   if (!hasCustomer && !hasItems) {
     return jsonOut_({
       ok: false,
