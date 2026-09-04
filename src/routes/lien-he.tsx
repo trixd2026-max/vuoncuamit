@@ -3,8 +3,15 @@ import { Button } from "@/components/ui/button";
 import { SHOP } from "@/lib/shop";
 import { ZaloMark } from "@/components/zalo-icon";
 import { qrImageUrl } from "@/lib/zalo";
+import { MapPin, Navigation } from "lucide-react";
 
 export const Route = createFileRoute("/lien-he")({ component: ContactPage });
+
+/** Embed Google Maps (search query) — không cần API key */
+const MAPS_EMBED =
+  "https://www.google.com/maps?q=" +
+  encodeURIComponent("Vườn Của Mít Thôn Phụng Sơn xã Tuy Phước Đông tỉnh Gia Lai") +
+  "&output=embed";
 
 function ContactPage() {
   const zaloQr = qrImageUrl(SHOP.zalo, 180);
@@ -37,13 +44,42 @@ function ContactPage() {
             </>
           ) : null}
         </p>
-        <p>
-          <strong className="text-foreground">Địa chỉ:</strong> {SHOP.address}
+        <p className="flex items-start gap-2">
+          <MapPin className="mt-0.5 size-4 shrink-0 text-primary" />
+          <span>
+            <strong className="text-foreground">Địa chỉ:</strong> {SHOP.address}
+          </span>
         </p>
         <p>
           <strong className="text-foreground">Giờ mở cửa:</strong> {SHOP.hours}
         </p>
       </div>
+
+      {/* Bản đồ Google Maps nhúng */}
+      <section className="mt-8 overflow-hidden rounded-2xl border border-border bg-card">
+        <div className="flex items-center justify-between gap-2 border-b border-border px-4 py-3">
+          <h2 className="font-display text-lg">Bản đồ đến vườn</h2>
+          <Button asChild size="sm" className="gap-1.5">
+            <a href={SHOP.mapsUrl} target="_blank" rel="noreferrer">
+              <Navigation className="size-3.5" />
+              Chỉ đường
+            </a>
+          </Button>
+        </div>
+        <div className="relative aspect-[16/10] w-full bg-muted">
+          <iframe
+            title="Bản đồ Vườn Của Mít"
+            src={MAPS_EMBED}
+            className="absolute inset-0 h-full w-full border-0"
+            loading="lazy"
+            referrerPolicy="no-referrer-when-downgrade"
+            allowFullScreen
+          />
+        </div>
+        <p className="px-4 py-2 text-xs text-muted-foreground">
+          Bấm <strong>Chỉ đường</strong> để mở Google Maps / Apple Maps và dẫn đường tới shop.
+        </p>
+      </section>
 
       <div className="mt-8 grid gap-4 sm:grid-cols-2">
         <div className="flex flex-col items-center rounded-2xl border border-border bg-card p-5 text-center">
@@ -85,9 +121,10 @@ function ContactPage() {
             Xem Facebook
           </a>
         </Button>
-        <Button asChild size="lg" variant="secondary">
+        <Button asChild size="lg" variant="secondary" className="gap-1.5">
           <a href={SHOP.mapsUrl} target="_blank" rel="noreferrer">
-            Mở bản đồ
+            <Navigation className="size-4" />
+            Chỉ đường
           </a>
         </Button>
       </div>
