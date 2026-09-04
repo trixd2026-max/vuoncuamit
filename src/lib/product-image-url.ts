@@ -1,44 +1,87 @@
 /**
- * Chuẩn hóa cột `hinh` trên Google Sheet → đường dẫn ảnh local.
+ * Chuẩn hóa URL ảnh sản phẩm từ cột `hinh` trên Google Sheet.
  *
- * Chỉ dùng file trong `public/products/`:
- * - `/products/HV09.jpg`
- * - `products/HV09.jpg`
- * - `HV09.jpg`
- *
- * Không dùng Google Drive / link ngoài.
+ * Hỗ trợ:
+ * - Đường dẫn local: /products/xxx.jpg (file trong public/)
+ * - URL https trực tiếp (CDN, ImgBB, Cloudinary, …)
+ * - Link Google Drive chia sẻ → chuyển thành URL xem trực tiếp
+ * - Chỉ dán FILE_ID của Drive (chuỗi ~25–44 ký tự)
+ * - Tên file trần: HV09.jpg → /products/HV09.jpg
  */
 
 const FALLBACK = "/products/hero.jpg";
 
+/** ID file Drive: chữ/số/_/- dài khoảng 25–44 */
+const DRIVE_ID_RE = /^[a-zA-Z0-9_-]{25,44}$/;
+
+function extractDriveId(raw: string): string | null {
+  const s = raw.trim();
+  if (!s) return null;
+
+  // https://drive.google.com/file/d/FILE_ID/...
+  let m = s.match(/\/file\/d\/([a-zA-Z0-9_-]+)/);
+  if (m) return m[1];
+
+  // https://drive.google.com/open?id=FILE_ID
+  // https://drive.google.com/uc?id=FILE_ID&export=...
+  m = s.match(/[?&]id=([a-zA-Z0-9_-]+)/);
+  if (m) return m[1];
+
+  // https://drive.google.com/uc?export=view&id=FILE_ID
+  m = s.match(/drive\.google\.com\/uc\?[^#]*id=([a-zA-Z0-9_-]+)/);
+  if (m) return m[1];
+
+  // Chỉ dán ID
+  if (DRIVE_ID_RE.test(s)) return s;
+
+  return null;
+}
+
+/** URL xem ảnh trực tiếp từ Drive (cần chia sẻ “Bất kỳ ai có liên kết”) */
+function driveViewUrl(fileId: string): string {
+  return `https://drive.google.com/uc?export=view&id=${fileId}`;
+}
+
 /**
- * Chuẩn hóa giá trị cột `hinh` thành `/products/...` dùng trong <img src>.
+ * Chuẩn hóa giá trị cột `hinh` thành URL dùng được trong <img src>.
  */
 export function normalizeProductImageUrl(raw: string | undefined | null): string {
   const s = (raw ?? "").trim();
   if (!s) return FALLBACK;
 
-  // Đã đúng dạng /products/...
+  // Local path trong public/
   if (s.startsWith("/products/")) return s;
-
-  // products/xxx.jpg → /products/xxx.jpg
   if (s.startsWith("products/")) return `/${s}`;
 
-  // Chỉ tên file: HV09.jpg / GC04.JPG
-  if (!s.includes("://") && !s.startsWith("/") && /\.(jpe?g|png|webp|gif|avif)$/i.test(s)) {
-    return `/products/${s}`;
+  // Protocol-relative
+  if (s.startsWith("//")) return `https:${s}`;
+
+  const lower = s.toLowerCase();
+
+  // Google Drive
+  if (
+    lower.includes("drive.google.com") ||
+    lower.includes("docs.google.com") ||
+    DRIVE_ID_RE.test(s)
+  ) {
+    const id = extractDriveId(s);
+    if (id) return driveViewUrl(id);
   }
 
-  // /HV09.jpg (thiếu products) → /products/HV09.jpg
-  if (s.startsWith("/") && !s.startsWith("/products/") && /\.(jpe?g|png|webp|gif|avif)$/i.test(s)) {
-    const name = s.replace(/^\//, "");
-    return `/products/${name}`;
+  // URL http/https đầy đủ (ImgBB, Cloudinary, Firebase, CDN…)
+  if (lower.startsWith("http://") || lower.startsWith("https://")) {
+    return s;
   }
 
-  // Link Drive / http cũ trên Sheet → không dùng, về fallback
-  // (tránh ảnh gãy; user sửa cột hinh = /products/MA.jpg + upload file)
-  if (/^https?:\/\//i.test(s) || s.includes("drive.google") || s.includes("docs.google")) {
-    return FALLBACK;
+  // Tên file không có / → coi như trong /products/
+  if (!s.includes("://") && /\.(jpe?g|png|webp|gif|avif)$/i.test(s)) {
+    const name = s.replace(/^\/+/, "");
+    return name.startsWith("products/") ? `/${name}` : `/products/${name}`;
+  }
+
+  // /HV09.jpg (thiếu products)
+  if (s.startsWith("/") && /\.(jpe?g|png|webp|gif|avif)$/i.test(s)) {
+    return `/products/${s.replace(/^\//, "")}`;
   }
 
   return FALLBACK;
