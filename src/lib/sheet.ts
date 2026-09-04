@@ -20,7 +20,6 @@ function isProbablyCsv(text: string) {
   return t.includes(",") || t.includes("\n");
 }
 
-/** Them ?t=timestamp de tranh cache Google / CDN / edge */
 function withCacheBust(url: string): string {
   const join = url.includes("?") ? "&" : "?";
   return `${url}${join}t=${Date.now()}`;
@@ -157,7 +156,10 @@ export const lookupOrders = createServerFn({ method: "POST" })
     const { ordersFromCsv, normalizePhone } = await import("./orders");
     const id = data.sheetId?.trim();
     if (!id) {
-      return { orders: [], warning: "Chua cau hinh Sheet ID" };
+      return {
+        orders: [],
+        warning: "Chưa cấu hình Sheet ID — vào cuối trang Quản lý → nhập Sheet ID → Lưu & đồng bộ",
+      };
     }
     const sheetName = encodeURIComponent(data.ordersSheetName?.trim() || "DonHang");
     const urls = [
@@ -169,7 +171,9 @@ export const lookupOrders = createServerFn({ method: "POST" })
       try {
         const text = await fetchText(url);
         if (!isProbablyCsv(text)) {
-          errors.push("Khong doc duoc tab DonHang — kiem tra chia se Sheet.");
+          errors.push(
+            "Không đọc được tab Đơn hàng — kiểm tra tên tab (DonHang) và chia sẻ Sheet 'bất kỳ ai có liên kết'.",
+          );
           continue;
         }
         let orders = ordersFromCsv(text);
@@ -177,14 +181,21 @@ export const lookupOrders = createServerFn({ method: "POST" })
         if (phoneQ) {
           const nq = normalizePhone(phoneQ);
           if (nq.length < 9) {
-            return { orders: [], warning: "So dien thoai chua du" };
+            return { orders: [], warning: "Số điện thoại chưa đủ" };
           }
           orders = orders.filter((o) => {
             const op = normalizePhone(o.phone);
             return op === nq || op.endsWith(nq.slice(-9)) || nq.endsWith(op.slice(-9));
           });
         }
-        const limit = data.limit && data.limit > 0 ? data.limit : phoneQ ? 20 : 80;
+        // Admin cần nhiều đơn để thống kê đúng (mặc định 500)
+        const limit = data.limit && data.limit > 0 ? data.limit : phoneQ ? 20 : 500;
+        if (orders.length === 0) {
+          return {
+            orders: [],
+            warning: "Tab đơn hàng trống hoặc header cột không khớp (cần MaDon / ThoiGian / TongTien).",
+          };
+        }
         return { orders: orders.slice(0, limit) };
       } catch (err) {
         errors.push(err instanceof Error ? err.message : "Loi mang");
@@ -192,7 +203,7 @@ export const lookupOrders = createServerFn({ method: "POST" })
     }
     return {
       orders: [],
-      warning: errors[0] ?? "Khong tai duoc log don",
+      warning: errors[0] ?? "Không tải được log đơn",
     };
   });
 
@@ -212,7 +223,6 @@ async function postWebhookUpdate(
   action: string,
   payload: Record<string, string>,
 ): Promise<{ ok: boolean; error?: string; raw?: string }> {
-  // Dua TOAN BO field len query + body de chiu duoc redirect POST->GET cua Google
   const target = (() => {
     try {
       const u = new URL(webhookUrl);
@@ -237,7 +247,6 @@ async function postWebhookUpdate(
   };
 
   try {
-    // 1) JSON POST
     const res = await fetch(target, {
       method: "POST",
       headers: {
@@ -253,7 +262,6 @@ async function postWebhookUpdate(
     if (json?.ok === false)
       return { ok: false, error: json.error || "Webhook tu choi", raw: text };
 
-    // 2) form POST
     const form = new URLSearchParams();
     form.set("action", action);
     form.set("_vcmUpdateOnly", "1");
@@ -273,7 +281,6 @@ async function postWebhookUpdate(
     if (json2?.ok === false)
       return { ok: false, error: json2.error || "Webhook tu choi", raw: text2 };
 
-    // 3) GET fallback (khi Google nuot body POST)
     const res3 = await fetch(target, { method: "GET", redirect: "follow" });
     const text3 = await res3.text();
     const json3 = tryParse(text3);
@@ -284,7 +291,7 @@ async function postWebhookUpdate(
     return {
       ok: false,
       error:
-        "Webhook chua deploy ban moi (co logVcm_/doGet). Vao Apps Script -> dan code moi -> Deploy -> New version",
+        "Webhook chua deploy ban moi. Vao Apps Script -> dan code moi -> Deploy -> New version",
       raw: text3 || text2 || text,
     };
   } catch (err) {
@@ -361,5 +368,27 @@ export const updateOrderCustomer = createServerFn({ method: "POST" })
       name: data.name ?? "",
       ordersSheetName: (data.ordersSheetName || "").trim(),
     });
+    return { ok: result.ok, error: result.error };
+  });
+
+/** Ghi snapshot báo cáo vào tab BaoCao trên cùng Google Sheet */
+export type SaveReportInput = {
+  webhookUrl: string;
+  report: Record<string, string | number>;
+  reportSheetName?: string;
+};
+
+export const saveReportToSheet = createServerFn({ method: "POST" })
+  .validator((input: SaveReportInput) => input)
+  .handler(async ({ data }): Promise<{ ok: boolean; error?: string }> => {
+    const webhookUrl = data.webhookUrl.trim();
+    if (!webhookUrl) return { ok: false, error: "Chưa cấu hình webhook" };
+    const payload: Record<string, string> = {
+      reportSheetName: (data.reportSheetName || "BaoCao").trim(),
+    };
+    for (const [k, v] of Object.entries(data.report || {})) {
+      payload[k] = String(v ?? "");
+    }
+    const result = await postWebhookUpdate(webhookUrl, "saveReport", payload);
     return { ok: result.ok, error: result.error };
   });
