@@ -31,7 +31,7 @@ const FRAME_ID = "vcm-print-frame";
 
 function printHtmlInFrame(html: string) {
   if (typeof document === "undefined") {
-    return { ok: false as const, error: "Chi in duoc tren trinh duyet" };
+    return { ok: false as const, error: "Chỉ in được trên trình duyệt" };
   }
   let iframe = document.getElementById(FRAME_ID) as HTMLIFrameElement | null;
   if (!iframe) {
@@ -44,7 +44,7 @@ function printHtmlInFrame(html: string) {
   }
   const win = iframe.contentWindow;
   const doc = iframe.contentDocument || win?.document;
-  if (!win || !doc) return { ok: false as const, error: "Khong tao duoc khung in" };
+  if (!win || !doc) return { ok: false as const, error: "Không tạo được khung in" };
   doc.open();
   doc.write(html);
   doc.close();
@@ -61,10 +61,10 @@ function printHtmlInFrame(html: string) {
 
 function escapeHtml(s: string) {
   return String(s ?? "")
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
+    .replace(/&/g, "&")
+    .replace(/</g, "<")
+    .replace(/>/g, ">")
+    .replace(/"/g, """);
 }
 
 function paperCss(paper: SlipPaper): { page: string; maxW: string; compact: boolean } {
@@ -165,21 +165,21 @@ function sharedStyles(paper: SlipPaper) {
 }
 
 export function printDeliverySlip(input: DeliverySlipInput, paper: SlipPaper = "A5") {
-  const html = `<!DOCTYPE html><html lang=\"vi\"><head><meta charset=\"utf-8\"/><title>Phieu giao</title><style>${sharedStyles(paper)}</style></head>
+  const html = `<!DOCTYPE html><html lang=\"vi\"><head><meta charset=\"utf-8\"/><title>Phiếu giao</title><style>${sharedStyles(paper)}</style></head>
 <body>${oneSlipHtml(input, paper, false)}</body></html>`;
   return printHtmlInFrame(html);
 }
 
 export function printDeliverySlips(inputs: DeliverySlipInput[], paper: SlipPaper = "K80") {
-  if (!inputs.length) return { ok: false as const, error: "Chua chon don de in" };
+  if (!inputs.length) return { ok: false as const, error: "Chưa chọn đơn để in" };
   const body = inputs.map((inp, i) => oneSlipHtml(inp, paper, i < inputs.length - 1)).join("\n");
-  const html = `<!DOCTYPE html><html lang=\"vi\"><head><meta charset=\"utf-8\"/><title>In ${inputs.length} phieu</title><style>${sharedStyles(paper)}</style></head>
+  const html = `<!DOCTYPE html><html lang=\"vi\"><head><meta charset=\"utf-8\"/><title>In ${inputs.length} phiếu</title><style>${sharedStyles(paper)}</style></head>
 <body>${body}</body></html>`;
   return printHtmlInFrame(html);
 }
 
 export function printOrderEstimate(input: PrintOrderInput) {
-  if (!input.lines.length) return { ok: false as const, error: "Chua co mon de in" };
+  if (!input.lines.length) return { ok: false as const, error: "Chưa có món để in" };
   const subtotal = cartTotal(input.lines);
   const ship = input.shippingFee ?? 0;
   const grand = subtotal + ship;
@@ -192,17 +192,17 @@ export function printOrderEstimate(input: PrintOrderInput) {
         <td style=\"padding:6px 4px;border-bottom:1px solid #e5e7eb;text-align:right\">${formatVnd(l.price * l.qty)}</td></tr>`;
     })
     .join("");
-  const html = `<!DOCTYPE html><html lang=\"vi\"><head><meta charset=\"utf-8\"/><title>Bao gia</title>
+  const html = `<!DOCTYPE html><html lang=\"vi\"><head><meta charset=\"utf-8\"/><title>Báo giá</title>
   <style>body{font-family:system-ui,sans-serif;padding:16px;max-width:480px;margin:0 auto}h1{font-size:18px}table{width:100%;border-collapse:collapse;font-size:13px}.total{font-size:16px;font-weight:700;margin-top:12px;text-align:right}</style></head>
   <body><h1>${escapeHtml(SHOP.name)}</h1><p style=\"color:#555;font-size:12px\">${escapeHtml(when)}</p>
-  <table><thead><tr><th style=\"text-align:left\">Mon</th><th>SL</th><th style=\"text-align:right\">Tien</th></tr></thead>
-  <tbody>${linesHtml}</tbody></table><div class=\"total\">Tong: ${formatVnd(grand)}</div></body></html>`;
+  <table><thead><tr><th style=\"text-align:left\">Món</th><th>SL</th><th style=\"text-align:right\">Tiền</th></tr></thead>
+  <tbody>${linesHtml}</tbody></table><div class=\"total\">Tổng: ${formatVnd(grand)}</div></body></html>`;
   return printHtmlInFrame(html);
 }
 
 /** Tem dán hộp */
 export function printBoxLabels(inputs: DeliverySlipInput[]) {
-  if (!inputs.length) return { ok: false as const, error: "Chua chon don" };
+  if (!inputs.length) return { ok: false as const, error: "Chưa chọn đơn" };
   const cards = inputs
     .map(
       (inp) => `<div class=\"label\">
@@ -214,7 +214,7 @@ export function printBoxLabels(inputs: DeliverySlipInput[]) {
 </div>`,
     )
     .join("\n");
-  const html = `<!DOCTYPE html><html lang=\"vi\"><head><meta charset=\"utf-8\"/><title>Tem hop</title>
+  const html = `<!DOCTYPE html><html lang=\"vi\"><head><meta charset=\"utf-8\"/><title>Tem hộp</title>
 <style>
 @page{size:A4;margin:8mm}body{font-family:system-ui,sans-serif;margin:0}
 .grid{display:grid;grid-template-columns:1fr 1fr;gap:8mm}
@@ -230,7 +230,7 @@ export function printBoxLabels(inputs: DeliverySlipInput[]) {
 
 /** Danh sách đóng gói theo chuyến */
 export function printPackingList(inputs: DeliverySlipInput[], tripName?: string) {
-  if (!inputs.length) return { ok: false as const, error: "Chua chon don" };
+  if (!inputs.length) return { ok: false as const, error: "Chưa chọn đơn" };
   const when = new Date().toLocaleString("vi-VN", { timeZone: "Asia/Ho_Chi_Minh" });
   const rows = inputs
     .map(
@@ -241,7 +241,7 @@ export function printPackingList(inputs: DeliverySlipInput[], tripName?: string)
 <td style=\"font-size:12px\">${escapeHtml(inp.address || "")}</td><td>□</td></tr>`,
     )
     .join("");
-  const html = `<!DOCTYPE html><html lang=\"vi\"><head><meta charset=\"utf-8\"/><title>Dong goi</title>
+  const html = `<!DOCTYPE html><html lang=\"vi\"><head><meta charset=\"utf-8\"/><title>Đóng gói</title>
 <style>
 body{font-family:system-ui,sans-serif;padding:12px;font-size:13px}h1{font-size:18px;margin:0 0 4px}
 table{width:100%;border-collapse:collapse;margin-top:12px}
