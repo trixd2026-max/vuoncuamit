@@ -64,7 +64,7 @@ function escapeHtml(s: string) {
     .replace(/&/g, "&")
     .replace(/</g, "<")
     .replace(/>/g, ">")
-    .replace(/"/g, """);
+    .replace(/"/g, "");
 }
 
 function paperCss(paper: SlipPaper): { page: string; maxW: string; compact: boolean } {
