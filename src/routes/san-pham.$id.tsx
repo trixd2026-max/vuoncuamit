@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -20,9 +20,24 @@ export const Route = createFileRoute("/san-pham/$id")({
 function ProductPage() {
   const { id } = Route.useParams();
   const products = useCatalog((s) => s.products);
+  const loading = useCatalog((s) => s.loading);
+  const loaded = useCatalog((s) => s.loaded);
+  const load = useCatalog((s) => s.load);
   const product = findProduct(products, id);
   const add = useCart((s) => s.add);
   const [qty, setQty] = useState(1);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  if (!loaded && loading) {
+    return (
+      <main className="mx-auto max-w-xl px-4 py-20 text-center text-muted-foreground">
+        Đang tải sản phẩm…
+      </main>
+    );
+  }
 
   if (!product) {
     return (
