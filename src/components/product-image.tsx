@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { cn } from "@/lib/utils";
-import { normalizeProductImageUrl } from "@/lib/product-image-url";
+import { normalizeProductImageUrl, isRemoteImageUrl } from "@/lib/product-image-url";
 
 const FALLBACK = "/products/hero.jpg";
 
@@ -29,6 +29,8 @@ export function ProductImage({
       className={cn("h-full w-full object-cover", className)}
       loading="lazy"
       decoding="async"
+      // Drive / một số CDN cần no-referrer để hiện ảnh
+      referrerPolicy={isRemoteImageUrl(current) ? "no-referrer" : undefined}
       onError={() => {
         if (!failed && current !== FALLBACK) {
           setFailed(true);
