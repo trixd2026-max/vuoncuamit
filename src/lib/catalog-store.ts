@@ -98,5 +98,6 @@ export function bindCatalogVisibilityReload() {
 }
 
 export function findProduct(products: Product[], id: string) {
-  return products.find((p) => p.id === id);
+  const q = id.trim().toLowerCase();
+  return products.find((p) => p.id.toLowerCase() === q);
 }
