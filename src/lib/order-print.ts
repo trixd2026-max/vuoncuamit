@@ -61,10 +61,10 @@ function printHtmlInFrame(html: string) {
 
 function escapeHtml(s: string) {
   return String(s ?? "")
-    .replace(/&/g, "&")
-    .replace(/</g, "<")
-    .replace(/>/g, ">")
-    .replace(/"/g, """);
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
 }
 
 function paperCss(paper: SlipPaper): { page: string; maxW: string; compact: boolean } {
