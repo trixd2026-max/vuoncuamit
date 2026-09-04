@@ -25,15 +25,15 @@ export function ProductCard({ product }: { product: Product }) {
           <ProductImage
             src={product.image}
             alt={product.name}
-            className="transition-transform duration-500 ease-out group-hover:scale-[1.03]"
+            className={`transition-transform duration-500 ease-out group-hover:scale-[1.03] ${!available ? "opacity-60 grayscale" : ""}`}
           />
         </div>
         {!available ? (
-          <span className="absolute top-3 left-3 rounded-full bg-card/90 px-2.5 py-1 text-xs font-medium">
+          <span className="absolute top-3 left-3 rounded-full bg-red-600 px-2.5 py-1 text-xs font-semibold text-white shadow-sm">
             Hết hàng
           </span>
         ) : label && label.startsWith("Sắp hết") ? (
-          <span className="absolute top-3 left-3 rounded-full bg-amber-600 px-2.5 py-1 text-xs font-medium text-white">
+          <span className="absolute top-3 left-3 rounded-full bg-amber-600 px-2.5 py-1 text-xs font-semibold text-white shadow-sm">
             {label}
           </span>
         ) : product.featured ? (
@@ -54,7 +54,11 @@ export function ProductCard({ product }: { product: Product }) {
           {product.name}
         </Link>
         {label && available ? (
-          <p className="text-xs text-muted-foreground">{label}</p>
+          <p className={`text-xs ${label.startsWith("Sắp hết") ? "font-medium text-amber-700" : "text-muted-foreground"}`}>
+            {label}
+          </p>
+        ) : !available ? (
+          <p className="text-xs font-medium text-red-600">Hết hàng — gọi đặt trước</p>
         ) : null}
         <div className="mt-auto flex items-end justify-between gap-2 pt-2">
           <p className="text-sm tabular-nums">

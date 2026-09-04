@@ -9,11 +9,22 @@ import {
   type CustomerAgg,
 } from "@/lib/orders";
 import { sendZaloTemplate, customerTelUrl, customerZaloUrl } from "@/lib/zalo";
+import { buildOrdersCsv, computeDayCompare, compute3DayCompare, computeWeekCompare, computeMonthCompare } from "@/lib/admin-stats";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { updateOrderStatus } from "@/lib/sheet";
+import { useMemo } from "react";
 
 type CashRow = { id: string; type: string; amount: number; note: string; at: string };
+
+function downloadCsv(csv: string, filename: string) {
+  const blob = new Blob(["\ufeff" + csv], { type: "text/csv;charset=utf-8" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
 
 export function AdminPipelineBoard(props: {
   orders: ShopOrder[];
@@ -115,7 +126,7 @@ export function AdminCustomersPanel(props: {
       </div>
       {reorderList.length > 0 ? (
         <div className="mt-6">
-          <h3 className="font-display text-lg">Nên nhắn lại ({">"} 30 ngày)</h3>
+          <h3 className="font-display text-lg">Nên nhắn lại ({'>'} 30 ngày)</h3>
           <ul className="mt-2 space-y-2">
             {reorderList.map((c) => (
               <li key={c.phone} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border px-3 py-2 text-sm">
@@ -130,6 +141,24 @@ export function AdminCustomersPanel(props: {
         </div>
       ) : null}
     </section>
+  );
+}
+
+function CompareCard({ title, cur, prev, pctVal, prevLabel }: {
+  title: string;
+  cur: number;
+  prev: number;
+  pctVal: number;
+  prevLabel: string;
+}) {
+  return (
+    <div className="rounded-xl border bg-card/70 px-3 py-2">
+      <p className="text-[10px] uppercase text-muted-foreground">{title}</p>
+      <p className="font-display text-xl tabular-nums">{typeof cur === "number" && cur > 1000 ? new Intl.NumberFormat("vi-VN").format(Math.round(cur)) + (title.includes("Đơn") ? "" : "đ") : cur}</p>
+      <p className={cn("text-[11px]", pctVal >= 0 ? "text-emerald-700" : "text-red-600")}>
+        {pctVal >= 0 ? "+" : ""}{pctVal}% vs {prevLabel}
+      </p>
+    </div>
   );
 }
 
@@ -150,39 +179,71 @@ export function AdminReportsPanel(props: {
 }) {
   const {
     orders, topItems, low, out, cashRows, setCashRows,
-    cashType, setCashType, cashAmount, setCashAmount, cashNote, setCashNote, parseOrderTime,
+    cashType, setCashType, cashAmount, setCashAmount, cashNote, setCashNote,
   } = props;
+
+  const dayCmp = useMemo(() => computeDayCompare(orders), [orders]);
+  const d3Cmp = useMemo(() => compute3DayCompare(orders), [orders]);
+  const weekCmp = useMemo(() => computeWeekCompare(orders), [orders]);
+  const monthCmp = useMemo(() => computeMonthCompare(orders), [orders]);
+
+  function exportRange(days?: number) {
+    const { csv, count, rev, filename } = buildOrdersCsv(orders, days);
+    downloadCsv(csv, filename);
+    toast.success(`Đã tải ${filename}: ${count} đơn · ${new Intl.NumberFormat("vi-VN").format(Math.round(rev))}đ`);
+  }
+
   return (
     <section className="mt-8 space-y-6">
       <div>
-        <h2 className="font-display text-xl">Báo cáo nhanh</h2>
-        <p className="mt-1 text-sm text-muted-foreground">Tính từ đơn đã tải (Sheet CSV)</p>
-        <div className="mt-3 flex flex-wrap gap-2">
-          <Button type="button" size="sm" variant="outline" onClick={() => {
-            const month = new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Ho_Chi_Minh" }).slice(0, 7);
-            const list = orders.filter((o) => {
-              const iso = parseOrderTime(o.time)?.toLocaleDateString("en-CA", { timeZone: "Asia/Ho_Chi_Minh" }) || "";
-              return iso.startsWith(month) || (o.time || "").includes(month);
-            });
-            let rev = 0, huy = 0;
-            for (const o of list) {
-              rev += parseOrderTotalNum(o.total);
-              if (normalizeOrderStatus(o.status) === "Hủy") huy++;
-            }
-            const lines = [
-              ["MaDon", "ThoiGian", "Ten", "SDT", "Tong", "TrangThai"],
-              ...list.map((o) => [o.orderId, o.time, o.name, o.phone, o.total, o.status]),
-            ];
-            const csv = lines.map((r) => r.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(",")).join("\n");
-            const blob = new Blob(["\ufeff" + csv], { type: "text/csv;charset=utf-8" });
-            const a = document.createElement("a");
-            a.href = URL.createObjectURL(blob);
-            a.download = `bao-cao-${month}.csv`;
-            a.click();
-            toast.success(`CSV ${month}: ${list.length} đơn · DT ${new Intl.NumberFormat("vi-VN").format(rev)}đ · hủy ${huy}`);
-          }}>Tải CSV tháng</Button>
+        <h2 className="font-display text-xl">Báo cáo & so sánh</h2>
+        <p className="mt-1 text-sm text-muted-foreground">Tự động theo ngày · 3 ngày · tuần · tháng (so với kỳ trước)</p>
+
+        <div className="mt-4 space-y-3">
+          <div>
+            <p className="mb-1.5 text-xs font-medium text-muted-foreground">{dayCmp.label}</p>
+            <div className="grid grid-cols-3 gap-2">
+              <CompareCard title="Đơn" cur={dayCmp.cur.count} prev={dayCmp.prev.count} pctVal={dayCmp.pctCount} prevLabel={dayCmp.prevLabel} />
+              <CompareCard title="Doanh thu" cur={dayCmp.cur.rev} prev={dayCmp.prev.rev} pctVal={dayCmp.pctRev} prevLabel={dayCmp.prevLabel} />
+              <CompareCard title="AOV" cur={dayCmp.cur.aov} prev={dayCmp.prev.aov} pctVal={dayCmp.pctAov} prevLabel={dayCmp.prevLabel} />
+            </div>
+          </div>
+          <div>
+            <p className="mb-1.5 text-xs font-medium text-muted-foreground">{d3Cmp.label}</p>
+            <div className="grid grid-cols-3 gap-2">
+              <CompareCard title="Đơn" cur={d3Cmp.cur.count} prev={d3Cmp.prev.count} pctVal={d3Cmp.pctCount} prevLabel={d3Cmp.prevLabel} />
+              <CompareCard title="Doanh thu" cur={d3Cmp.cur.rev} prev={d3Cmp.prev.rev} pctVal={d3Cmp.pctRev} prevLabel={d3Cmp.prevLabel} />
+              <CompareCard title="AOV" cur={d3Cmp.cur.aov} prev={d3Cmp.prev.aov} pctVal={d3Cmp.pctAov} prevLabel={d3Cmp.prevLabel} />
+            </div>
+          </div>
+          <div>
+            <p className="mb-1.5 text-xs font-medium text-muted-foreground">{weekCmp.label}</p>
+            <div className="grid grid-cols-3 gap-2">
+              <CompareCard title="Đơn" cur={weekCmp.cur.count} prev={weekCmp.prev.count} pctVal={weekCmp.pctCount} prevLabel={weekCmp.prevLabel} />
+              <CompareCard title="Doanh thu" cur={weekCmp.cur.rev} prev={weekCmp.prev.rev} pctVal={weekCmp.pctRev} prevLabel={weekCmp.prevLabel} />
+              <CompareCard title="AOV" cur={weekCmp.cur.aov} prev={weekCmp.prev.aov} pctVal={weekCmp.pctAov} prevLabel={weekCmp.prevLabel} />
+            </div>
+          </div>
+          <div>
+            <p className="mb-1.5 text-xs font-medium text-muted-foreground">{monthCmp.label}</p>
+            <div className="grid grid-cols-3 gap-2">
+              <CompareCard title="Đơn" cur={monthCmp.cur.count} prev={monthCmp.prev.count} pctVal={monthCmp.pctCount} prevLabel={monthCmp.prevLabel} />
+              <CompareCard title="Doanh thu" cur={monthCmp.cur.rev} prev={monthCmp.prev.rev} pctVal={monthCmp.pctRev} prevLabel={monthCmp.prevLabel} />
+              <CompareCard title="AOV" cur={monthCmp.cur.aov} prev={monthCmp.prev.aov} pctVal={monthCmp.pctAov} prevLabel={monthCmp.prevLabel} />
+            </div>
+          </div>
         </div>
+
+        <div className="mt-4 flex flex-wrap gap-2">
+          <Button type="button" size="sm" variant="outline" onClick={() => exportRange(1)}>Excel hôm nay</Button>
+          <Button type="button" size="sm" variant="outline" onClick={() => exportRange(3)}>Excel 3 ngày</Button>
+          <Button type="button" size="sm" variant="outline" onClick={() => exportRange(7)}>Excel 7 ngày</Button>
+          <Button type="button" size="sm" variant="outline" onClick={() => exportRange(30)}>Excel 30 ngày</Button>
+          <Button type="button" size="sm" onClick={() => exportRange()}>Excel tất cả</Button>
+        </div>
+        <p className="mt-1 text-xs text-muted-foreground">File CSV mở được bằng Excel / Google Sheets (UTF-8 BOM).</p>
       </div>
+
       <div>
         <h3 className="font-display text-lg">Top món (ước lượng)</h3>
         <ul className="mt-2 space-y-1 text-sm">
@@ -195,6 +256,7 @@ export function AdminReportsPanel(props: {
           {topItems.length === 0 ? <li className="text-muted-foreground">Chưa đủ dữ liệu</li> : null}
         </ul>
       </div>
+
       <div>
         <h3 className="font-display text-lg">Sổ quỹ nhẹ (máy này)</h3>
         <p className="text-xs text-muted-foreground">Lưu localStorage — không ghi Sheet</p>
@@ -227,6 +289,7 @@ export function AdminReportsPanel(props: {
           ))}
         </ul>
       </div>
+
       <div>
         <h3 className="font-display text-lg">Tồn / sắp hết</h3>
         <p className="text-sm text-muted-foreground">Từ catalog: sắp hết {low} · hết {out}</p>

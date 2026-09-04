@@ -56,7 +56,7 @@ export function AdminPage() {
   const [bulkStatus, setBulkStatus] = useState("Đã xác nhận");
   const [bulkBusy, setBulkBusy] = useState(false);
   const [paperSize, setPaperSize] = useState<SlipPaper>("K80");
-  const [statsRange, setStatsRange] = useState<"7" | "30">("7");
+  const [statsRange, setStatsRange] = useState<"1" | "3" | "7" | "30">("7");
   const [adminTab, setAdminTab] = useState<"don" | "pipeline" | "khach" | "baocao">("don");
   const [cashNote, setCashNote] = useState("");
   const [cashAmount, setCashAmount] = useState("");
@@ -145,7 +145,7 @@ export function AdminPage() {
   }, [orders]);
 
   const periodStats = useMemo(() => {
-    const days = statsRange === "7" ? 7 : 30;
+    const days = Number(statsRange) || 7;
     const now = new Date();
     const tz = "Asia/Ho_Chi_Minh";
     const buckets: { key: string; label: string; count: number; revenue: number }[] = [];
@@ -234,6 +234,8 @@ export function AdminPage() {
         <Button type="button" variant="outline" size="sm" onClick={() => { lockAdmin(); setUnlocked(false); }}>Khóa</Button>
         <Button type="button" variant="ghost" size="sm" onClick={() => setShowPinChange((v) => !v)}>Đổi PIN</Button>
         <Button type="button" variant="ghost" size="sm" asChild><Link to="/tra-cuu-don">Tra cứu đơn</Link></Button>
+        <Button type="button" variant="ghost" size="sm" onClick={() => setAdminTab("don")}>Đơn hàng</Button>
+        <Button type="button" variant="ghost" size="sm" onClick={() => setAdminTab("baocao")}>Báo cáo</Button>
       </div>
 
       {showPinChange ? (
@@ -300,7 +302,9 @@ export function AdminPage() {
       <section className="mt-6 rounded-xl border bg-card/40 p-3">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <h2 className="font-display text-lg">Thống kê {periodStats.days} ngày</h2>
-          <div className="flex gap-1">
+          <div className="flex flex-wrap gap-1">
+            <Button type="button" size="sm" variant={statsRange==="1"?"default":"outline"} className="h-8 text-xs" onClick={()=>setStatsRange("1")}>Hôm nay</Button>
+            <Button type="button" size="sm" variant={statsRange==="3"?"default":"outline"} className="h-8 text-xs" onClick={()=>setStatsRange("3")}>3 ngày</Button>
             <Button type="button" size="sm" variant={statsRange==="7"?"default":"outline"} className="h-8 text-xs" onClick={()=>setStatsRange("7")}>7 ngày</Button>
             <Button type="button" size="sm" variant={statsRange==="30"?"default":"outline"} className="h-8 text-xs" onClick={()=>setStatsRange("30")}>30 ngày</Button>
           </div>
@@ -331,97 +335,41 @@ export function AdminPage() {
               <option value="K80">K80</option><option value="A6">A6</option><option value="A5">A5</option>
             </select>
           </div>
-          <div className="mt-3 flex flex-wrap gap-2 rounded-xl border border-dashed px-3 py-2">
-            <label className="flex items-center gap-1 text-xs">
-              <input type="checkbox" checked={filteredOrders.length>0&&filteredOrders.every((o)=>selectedIds.has(orderKey(o)))}
-                onChange={(e)=>setSelectedIds(e.target.checked?new Set(filteredOrders.map(orderKey)):new Set())} />
-              Chọn ({selectedIds.size})
-            </label>
-            <select className="h-8 rounded-md border px-2 text-xs" value={bulkStatus} onChange={(e)=>setBulkStatus(e.target.value)}>
-              {ORDER_STATUSES.map((s)=><option key={s} value={s}>{s}</option>)}
-            </select>
-            <Button type="button" size="sm" className="h-8 text-xs" disabled={!selectedIds.size||bulkBusy} onClick={()=>{
-              void (async()=>{
-                if(!webhookUrl.trim()){toast.error("Chưa webhook");return;}
-                const targets=filteredOrders.filter((o)=>selectedIds.has(orderKey(o)));
-                setBulkBusy(true); let ok=0;
-                for(const o of targets){
-                  const res=await updateOrderStatus({data:{webhookUrl:webhookUrl.trim(),orderId:o.orderId,status:bulkStatus,ordersSheetName:ordersSheetName.trim()||"DonHang"}});
-                  if(res.ok){ok++; setOrders((prev)=>prev.map((x)=>x.orderId===o.orderId?{...x,status:bulkStatus}:x));}
-                }
-                setBulkBusy(false); setSelectedIds(new Set());
-                toast.success(`${ok}/${targets.length} → ${bulkStatus}`);
-              })();
-            }}>{bulkBusy?"…":"Đổi TT"}</Button>
-            <Button type="button" size="sm" variant="outline" className="h-8 text-xs" disabled={!selectedIds.size} onClick={()=>{
-              const t=filteredOrders.filter((o)=>selectedIds.has(orderKey(o)));
-              const r=printDeliverySlips(t.map(toSlip),paperSize);
-              if(r.ok) toast.success(`In ${t.length}`); else toast.error(r.error||"Lỗi");
-            }}>In phiếu</Button>
-            <Button type="button" size="sm" variant="outline" className="h-8 text-xs" disabled={!selectedIds.size} onClick={()=>{
-              const t=filteredOrders.filter((o)=>selectedIds.has(orderKey(o)));
-              const r=printBoxLabels(t.map(toSlip));
-              if(r.ok) toast.success(`Tem ${t.length}`); else toast.error(r.error||"Lỗi");
-            }}>In tem</Button>
-            <Button type="button" size="sm" variant="outline" className="h-8 text-xs" disabled={!selectedIds.size} onClick={()=>{
-              const t=filteredOrders.filter((o)=>selectedIds.has(orderKey(o)));
-              const r=printPackingList(t.map(toSlip),filterDate||"Chuyến");
-              if(r.ok) toast.success(`DS ${t.length}`); else toast.error(r.error||"Lỗi");
-            }}>DS đóng gói</Button>
-          </div>
           <p className="mt-2 text-xs text-muted-foreground">{filteredOrders.length}/{orders.length} đơn{ordersWarning?` · ${ordersWarning}`:""}</p>
           <ul className="mt-4 space-y-3">
             {filteredOrders.map((o)=>{
               const need=isNeedCallback(o);
               return (
                 <li key={orderKey(o)} className={cn("rounded-xl border p-3", need&&"border-red-400 bg-red-50")}>
-                  <div className="flex gap-2">
-                    <input type="checkbox" className="mt-1" checked={selectedIds.has(orderKey(o))}
-                      onChange={(e)=>{
-                        setSelectedIds((prev)=>{
-                          const n=new Set(prev);
-                          if(e.target.checked) n.add(orderKey(o)); else n.delete(orderKey(o));
-                          return n;
-                        });
-                      }} />
-                    <div className="min-w-0 flex-1">
-                      <p className="font-semibold">#{o.orderId} · {o.name||"Khách"}</p>
-                      <p className="text-sm">{o.phone} · {formatOrderTotal(o.total)}</p>
-                      <p className="text-xs text-muted-foreground">{o.time} · {normalizeOrderStatus(o.status)}</p>
-                      <p className="mt-1 text-sm line-clamp-2">{o.items}</p>
-                      <div className="mt-2 flex flex-wrap gap-1">
-                        <select className="h-8 rounded-md border px-1 text-xs" value={normalizeOrderStatus(o.status)}
-                          onChange={(e)=>{
-                            const st=e.target.value;
-                            void (async()=>{
-                              if(!webhookUrl.trim()){toast.error("Chưa webhook");return;}
-                              const res=await updateOrderStatus({data:{webhookUrl:webhookUrl.trim(),orderId:o.orderId,status:st,ordersSheetName:ordersSheetName.trim()||"DonHang"}});
-                              if(res.ok){setOrders((prev)=>prev.map((x)=>x.orderId===o.orderId?{...x,status:st}:x)); toast.success(`→ ${st}`);}
-                              else toast.error(res.error||"Lỗi");
-                            })();
-                          }}>
-                          {ORDER_STATUSES.map((s)=><option key={s} value={s}>{s}</option>)}
-                        </select>
-                        <Button type="button" size="sm" variant="outline" className="h-8 text-xs" onClick={()=>{
-                          const r=printDeliverySlip(toSlip(o),paperSize);
-                          if(r.ok) toast.message(`In ${paperSize}`);
-                        }}>In</Button>
-                        <Button type="button" size="sm" variant="outline" className="h-8 text-xs" onClick={()=>{
-                          void sendZaloTemplate(o.phone,"received",{orderId:o.orderId,name:o.name,total:formatOrderTotal(o.total),items:o.items});
-                          toast.message("Zalo nhận");
-                        }}>Zalo nhận</Button>
-                        <Button type="button" size="sm" variant="outline" className="h-8 text-xs" onClick={()=>{
-                          void sendZaloTemplate(o.phone,"shipping",{orderId:o.orderId,name:o.name});
-                          toast.message("Zalo giao");
-                        }}>Zalo giao</Button>
-                        <Button type="button" size="sm" variant="outline" className="h-8 text-xs" onClick={()=>{
-                          void sendZaloTemplate(o.phone,"done",{orderId:o.orderId,name:o.name});
-                          toast.message("Zalo xong");
-                        }}>Zalo xong</Button>
-                        <Button type="button" size="sm" variant="ghost" className="h-8 text-xs" asChild>
-                          <a href={customerTelUrl(o.phone)}>Gọi</a>
-                        </Button>
-                      </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="font-semibold">#{o.orderId} · {o.name||"Khách"}</p>
+                    <p className="text-sm">{o.phone} · {formatOrderTotal(o.total)}</p>
+                    <p className="text-xs text-muted-foreground">{o.time} · {normalizeOrderStatus(o.status)}</p>
+                    <p className="mt-1 text-sm line-clamp-2">{o.items}</p>
+                    <div className="mt-2 flex flex-wrap gap-1">
+                      <select className="h-8 rounded-md border px-1 text-xs" value={normalizeOrderStatus(o.status)}
+                        onChange={(e)=>{
+                          const st=e.target.value;
+                          void (async()=>{
+                            if(!webhookUrl.trim()){toast.error("Chưa webhook");return;}
+                            const res=await updateOrderStatus({data:{webhookUrl:webhookUrl.trim(),orderId:o.orderId,status:st,ordersSheetName:ordersSheetName.trim()||"DonHang"}});
+                            if(res.ok){setOrders((prev)=>prev.map((x)=>x.orderId===o.orderId?{...x,status:st}:x)); toast.success(`→ ${st}`);}
+                            else toast.error(res.error||"Lỗi");
+                          })();
+                        }}>
+                        {ORDER_STATUSES.map((s)=><option key={s} value={s}>{s}</option>)}
+                      </select>
+                      <Button type="button" size="sm" variant="outline" className="h-8 text-xs" onClick={()=>{
+                        const r=printDeliverySlip(toSlip(o),paperSize);
+                        if(r.ok) toast.message(`In ${paperSize}`);
+                      }}>In</Button>
+                      <Button type="button" size="sm" variant="outline" className="h-8 text-xs" onClick={()=>{
+                        void sendZaloTemplate(o.phone,"received",{orderId:o.orderId,name:o.name,total:formatOrderTotal(o.total),items:o.items});
+                        toast.message("Zalo nhận");
+                      }}>Zalo</Button>
+                      <Button type="button" size="sm" variant="ghost" className="h-8 text-xs" asChild>
+                        <a href={customerTelUrl(o.phone)}>Gọi</a>
+                      </Button>
                     </div>
                   </div>
                 </li>
