@@ -12,18 +12,28 @@ export type ShopOrder = {
   total: string;
   items: string;
   type: string;
-  /** Trạng thái: Mới | Đã xác nhận | Đang giao | Xong | Hủy */
+  /** Trạng thái pipeline */
   status: string;
   /** Log ngắn: Mới→Đã xác nhận 14:20 | … */
   statusLog: string;
 };
 
+/** Pipeline vận hành: Mới → Đã xác nhận → Đóng gói → Đang giao → Xong (+ Hủy) */
 export const ORDER_STATUSES = [
   "Mới",
   "Đã xác nhận",
+  "Đóng gói",
   "Đang giao",
   "Xong",
   "Hủy",
+] as const;
+
+export const PIPELINE_STATUSES = [
+  "Mới",
+  "Đã xác nhận",
+  "Đóng gói",
+  "Đang giao",
+  "Xong",
 ] as const;
 
 export function normalizeOrderStatus(raw: string): string {
@@ -35,6 +45,8 @@ export function normalizeOrderStatus(raw: string): string {
     .replace(/[\u0300-\u036f]/g, "");
   if (key === "moi" || key === "new" || key === "pending") return "Mới";
   if (key.includes("xac nhan") || key.includes("confirmed")) return "Đã xác nhận";
+  if (key.includes("dong goi") || key.includes("packing") || key.includes("pack"))
+    return "Đóng gói";
   if (key.includes("dang giao") || key.includes("shipping") || key.includes("deliver"))
     return "Đang giao";
   if (key === "xong" || key === "done" || key === "completed" || key.includes("hoan thanh"))
@@ -49,7 +61,7 @@ export function orderStatusTone(
 ): "default" | "ok" | "warn" | "muted" | "danger" {
   const s = normalizeOrderStatus(status);
   if (s === "Xong") return "ok";
-  if (s === "Đang giao" || s === "Đã xác nhận") return "warn";
+  if (s === "Đang giao" || s === "Đã xác nhận" || s === "Đóng gói") return "warn";
   if (s === "Hủy") return "danger";
   if (s === "Mới") return "default";
   return "muted";
@@ -63,6 +75,25 @@ export function normalizePhone(raw: string): string {
   if (/^[35789]\d{8}$/.test(s)) s = "0" + s;
   if (s.startsWith("0")) s = "0" + s.replace(/^0+/, "");
   return s;
+}
+
+/** SĐT lạ: không đúng format di động VN 10 số 03/05/07/08/09 */
+export function isWeirdPhone(phone: string): boolean {
+  const p = normalizePhone(phone);
+  if (!p) return true;
+  if (p.length < 9 || p.length > 11) return true;
+  if (!/^0[35789]\d{8}$/.test(p) && !/^0[35789]\d{7,9}$/.test(p)) return true;
+  return false;
+}
+
+export function isMissingAddress(address: string): boolean {
+  const a = (address || "").trim();
+  return a.length < 8;
+}
+
+export function parseOrderTotalNum(total: string): number {
+  const n = Number(String(total).replace(/[^\d.-]/g, ""));
+  return Number.isFinite(n) ? n : 0;
 }
 
 function headerKey(h: string) {
@@ -193,4 +224,48 @@ export function formatOrderTotal(total: string): string {
   const n = Number(String(total).replace(/[^\d.-]/g, ""));
   if (!Number.isFinite(n) || n === 0) return total || "—";
   return new Intl.NumberFormat("vi-VN").format(n) + "đ";
+}
+
+export type CustomerAgg = {
+  phone: string;
+  name: string;
+  orderCount: number;
+  totalSpend: number;
+  lastOrderAt: string;
+  lastOrderId: string;
+  notes: string[];
+};
+
+/** Gom khách theo SĐT từ danh sách đơn */
+export function aggregateCustomers(orders: ShopOrder[]): CustomerAgg[] {
+  const map = new Map<string, CustomerAgg>();
+  for (const o of orders) {
+    const phone = normalizePhone(o.phone);
+    if (!phone || phone.length < 9) continue;
+    const key = phone.slice(-9);
+    let c = map.get(key);
+    if (!c) {
+      c = {
+        phone,
+        name: o.name || "Khách",
+        orderCount: 0,
+        totalSpend: 0,
+        lastOrderAt: o.time || "",
+        lastOrderId: o.orderId || "",
+        notes: [],
+      };
+      map.set(key, c);
+    }
+    c.orderCount += 1;
+    c.totalSpend += parseOrderTotalNum(o.total);
+    if (o.name) c.name = o.name;
+    if (o.phone) c.phone = phone;
+    if (o.note?.trim()) c.notes.push(o.note.trim());
+    if (o.internalNote?.trim()) c.notes.push(`[NB] ${o.internalNote.trim()}`);
+    if (o.time && (!c.lastOrderAt || String(o.time) > String(c.lastOrderAt))) {
+      c.lastOrderAt = o.time;
+      c.lastOrderId = o.orderId;
+    }
+  }
+  return [...map.values()].sort((a, b) => b.totalSpend - a.totalSpend);
 }

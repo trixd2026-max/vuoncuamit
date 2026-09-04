@@ -96,3 +96,53 @@ export function customerTelUrl(phone: string) {
 export function qrImageUrl(data: string, size = 160) {
   return `https://api.qrserver.com/v1/create-qr-code/?size=${size}x${size}&data=${encodeURIComponent(data)}`;
 }
+
+/** Mẫu tin nhắn shop → khách (copy + mở Zalo) */
+export type ZaloTplKind = "received" | "shipping" | "done";
+
+export function buildCustomerZaloMessage(
+  kind: ZaloTplKind,
+  o: { orderId?: string; name?: string; total?: string; items?: string },
+) {
+  const name = o.name || "bạn";
+  const id = o.orderId ? ` #${o.orderId}` : "";
+  if (kind === "received") {
+    return [
+      `Xin chào ${name},`,
+      `Shop đã nhận đơn${id} của bạn.`,
+      o.items ? `Nội dung: ${o.items}` : "",
+      o.total ? `Tổng: ${o.total}` : "",
+      `Shop sẽ xác nhận và giao sớm nhất. Cảm ơn bạn ạ!`,
+    ]
+      .filter(Boolean)
+      .join("\n");
+  }
+  if (kind === "shipping") {
+    return [
+      `Xin chào ${name},`,
+      `Đơn${id} đang được giao đến bạn.`,
+      `Vui lòng giữ máy để shipper liên hệ nhận hàng nhé!`,
+    ].join("\n");
+  }
+  return [
+    `Xin chào ${name},`,
+    `Đơn${id} đã giao xong.`,
+    `Cảm ơn bạn đã ủng hộ ${SHOP.name}! Hẹn gặp lại ạ 🌿`,
+  ].join("\n");
+}
+
+export async function sendZaloTemplate(
+  phone: string,
+  kind: ZaloTplKind,
+  o: { orderId?: string; name?: string; total?: string; items?: string },
+) {
+  const text = buildCustomerZaloMessage(kind, o);
+  const url = customerZaloUrl(phone);
+  try {
+    await navigator.clipboard.writeText(text);
+  } catch {
+    /* ignore */
+  }
+  window.open(url, "_blank", "noopener,noreferrer");
+  return text;
+}
