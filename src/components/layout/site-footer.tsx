@@ -52,7 +52,9 @@ export function SiteFooter() {
               <Link to="/tra-cuu-don">Tra cứu đơn</Link>
             </li>
             <li>
-              <Link to="/quan-ly">Quản lý đơn hàng</Link>
+              <Link to="/quan-ly" className="font-medium text-primary underline-offset-4 hover:underline">
+                Quản lý đơn hàng (đăng nhập)
+              </Link>
             </li>
             <li>
               <a href={SHOP.facebook} target="_blank" rel="noreferrer">
