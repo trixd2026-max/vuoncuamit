@@ -20,12 +20,21 @@ function isProbablyCsv(text: string) {
   return t.includes(",") || t.includes("\n");
 }
 
+/** Thêm ?t=timestamp để tránh cache Google / CDN / edge */
+function withCacheBust(url: string): string {
+  const join = url.includes("?") ? "&" : "?";
+  return `${url}${join}t=${Date.now()}`;
+}
+
 async function fetchText(url: string) {
-  const res = await fetch(url, {
+  const res = await fetch(withCacheBust(url), {
     headers: {
       Accept: "text/csv,text/plain,*/*",
       "User-Agent": "VuonCuaMit/1.0",
+      "Cache-Control": "no-cache, no-store, must-revalidate",
+      Pragma: "no-cache",
     },
+    cache: "no-store",
     redirect: "follow",
   });
   if (!res.ok) throw new Error(`Không tải được bảng (${res.status})`);
@@ -41,11 +50,12 @@ function sheetUrls(input: SheetConfigInput): string[] {
   if (id) {
     const name = encodeURIComponent(input.sheetName?.trim() || "SanPham");
     const gid = encodeURIComponent(input.gid?.trim() || "0");
-    urls.push(
-      `https://docs.google.com/spreadsheets/d/${id}/gviz/tq?tqx=out:csv&sheet=${name}`,
-    );
+    // Ưu tiên export theo gid (ổn định hơn gviz theo tên tab)
     urls.push(
       `https://docs.google.com/spreadsheets/d/${id}/export?format=csv&gid=${gid}`,
+    );
+    urls.push(
+      `https://docs.google.com/spreadsheets/d/${id}/gviz/tq?tqx=out:csv&sheet=${name}`,
     );
   }
   return urls;
