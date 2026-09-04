@@ -236,6 +236,20 @@ export function AdminPage() {
         <Button type="button" variant="ghost" size="sm" asChild><Link to="/tra-cuu-don">Tra cứu đơn</Link></Button>
       </div>
 
+      {showPinChange ? (
+        <form className="mt-4 flex flex-wrap items-end gap-2 rounded-xl border bg-card/50 p-3" onSubmit={(e) => {
+          e.preventDefault();
+          if (newPin.trim().length < 4) { toast.error("PIN tối thiểu 4 ký tự"); return; }
+          setStoredPin(newPin.trim());
+          setNewPin("");
+          setShowPinChange(false);
+          toast.success("Đã đổi PIN");
+        }}>
+          <div className="flex-1"><Label>PIN mới</Label><Input type="password" value={newPin} onChange={(e) => setNewPin(e.target.value)} /></div>
+          <Button type="submit" size="sm">Lưu PIN</Button>
+        </form>
+      ) : null}
+
       <section className="mt-8 grid grid-cols-2 gap-3 sm:grid-cols-5">
         <div className="rounded-xl border bg-card/70 px-3 py-3"><p className="text-[10px] uppercase text-muted-foreground">Đơn hôm nay</p><p className="mt-1 font-display text-2xl tabular-nums">{todayStats.count}</p></div>
         <div className="rounded-xl border bg-card/70 px-3 py-3"><p className="text-[10px] uppercase text-muted-foreground">Doanh thu</p><p className="mt-1 font-display text-2xl tabular-nums">{todayStats.revenueLabel}</p></div>
@@ -302,8 +316,83 @@ export function AdminPage() {
         </div>
       </section>
 
-      {/* REST OF FILE CONTINUES - truncated for this attempt; will complete in follow-up if needed */}
-      <p className="mt-8 text-sm text-muted-foreground">Đang khôi phục file đầy đủ...</p>
+      {adminTab==="don" ? (
+        <div className="mt-8">
+          <h2 className="font-display text-xl">Đơn gần đây</h2>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <Input type="date" className="h-9 w-auto" value={filterDate} onChange={(e)=>setFilterDate(e.target.value)} />
+            <select className="h-9 rounded-md border px-2 text-sm" value={filterStatus} onChange={(e)=>setFilterStatus(e.target.value)}>
+              <option value="">Tất cả</option>
+              {ORDER_STATUSES.map((s)=><option key={s} value={s}>{s}</option>)}
+            </select>
+            <Input type="tel" className="h-9 w-28" placeholder="SĐT" value={filterPhone} onChange={(e)=>setFilterPhone(e.target.value)} />
+            <Button type="button" variant="outline" size="sm" className="h-9" disabled={ordersLoading} onClick={()=>void loadOrders()}>{ordersLoading?"…":"Làm mới"}</Button>
+            <select className="h-9 rounded-md border px-1 text-xs" value={paperSize} onChange={(e)=>setPaperSize(e.target.value as SlipPaper)}>
+              <option value="K80">K80</option><option value="A6">A6</option><option value="A5">A5</option>
+            </select>
+          </div>
+          {ordersWarning ? <p className="mt-2 text-sm text-muted-foreground">{ordersWarning}</p> : null}
+          <div className="mt-3 space-y-2">
+            {filteredOrders.map((o) => (
+              <div key={orderKey(o)} className="rounded-xl border bg-card/60 p-3 text-sm">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div>
+                    <p className="font-medium">{o.orderId} · {o.name}</p>
+                    <p className="text-xs text-muted-foreground">{o.time} · {o.phone}</p>
+                  </div>
+                  <span className="rounded-full bg-primary/10 px-2 py-0.5 text-xs">{normalizeOrderStatus(o.status)}</span>
+                </div>
+                <p className="mt-1 text-xs">{o.items}</p>
+                <p className="mt-1 font-medium">{formatOrderTotal(o.total)}</p>
+                <div className="mt-2 flex flex-wrap gap-1">
+                  <Button type="button" size="sm" variant="outline" className="h-7 text-xs" onClick={() => {
+                    const r = printDeliverySlip(toSlip(o), paperSize);
+                    if (!r.ok) toast.error(r.error);
+                  }}>In phiếu</Button>
+                  {o.phone ? <Button type="button" size="sm" variant="ghost" className="h-7 text-xs" asChild><a href={customerTelUrl(o.phone)}>Gọi</a></Button> : null}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : null}
+
+      {adminTab==="pipeline" ? <AdminPipelineBoard orders={orders} onRefresh={() => void loadOrders()} /> : null}
+      {adminTab==="khach" ? <AdminCustomersPanel customers={customers} reorderList={reorderList} /> : null}
+      {adminTab==="baocao" ? <AdminReportsPanel topItems={topItems} weekCompare={weekCompare} /> : null}
+
+      <section className="mt-10 space-y-4 rounded-2xl border bg-card/50 p-4">
+        <h2 className="font-display text-xl">Cấu hình Google Sheet</h2>
+        <Field label="Sheet ID"><Input value={sheetId} onChange={(e) => setSheetId(e.target.value)} placeholder="1abc..." /></Field>
+        <Field label="CSV URL (tuỳ chọn)"><Input value={csvUrl} onChange={(e) => setCsvUrl(e.target.value)} /></Field>
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Tab sản phẩm"><Input value={sheetName} onChange={(e) => setSheetName(e.target.value)} /></Field>
+          <Field label="gid"><Input value={gid} onChange={(e) => setGid(e.target.value)} /></Field>
+        </div>
+        <Field label="Tab đơn hàng"><Input value={ordersSheetName} onChange={(e) => setOrdersSheetName(e.target.value)} /></Field>
+        <Field label="Webhook Apps Script">
+          <div className="flex gap-2">
+            <Input type={showWebhook ? "text" : "password"} value={webhookUrl} onChange={(e) => setWebhookUrl(e.target.value)} />
+            <Button type="button" variant="outline" size="icon" onClick={() => setShowWebhook((v) => !v)}>{showWebhook ? <EyeOff className="size-4" /> : <Eye className="size-4" />}</Button>
+          </div>
+          {webhookUrl ? <p className="mt-1 text-xs text-muted-foreground">{maskWebhookUrl(webhookUrl)}</p> : null}
+        </Field>
+        <Button type="button" onClick={() => void save()} disabled={loading}>{loading ? "Đang đồng bộ…" : "Lưu và đồng bộ"}</Button>
+        <p className="text-xs text-muted-foreground">Nguồn: {source}{warning ? ` · ${warning}` : ""} · SP: {products.length} · Sắp hết: {low} · Hết: {out}</p>
+      </section>
+
+      <section className="mt-8 rounded-2xl border bg-card/50 p-4">
+        <h2 className="font-display text-xl">Apps Script mẫu</h2>
+        <p className="mt-1 text-sm text-muted-foreground">Copy vào Google Apps Script, deploy Web App, dán URL webhook ở trên.</p>
+        <pre className="mt-3 max-h-64 overflow-auto rounded-lg bg-muted p-3 text-xs">{scriptLoading ? "Đang tải…" : script}</pre>
+        <Button type="button" variant="outline" size="sm" className="mt-2" onClick={() => {
+          const blob = new Blob([productsToCsv(LOCAL_PRODUCTS)], { type: "text/csv" });
+          const a = document.createElement("a");
+          a.href = URL.createObjectURL(blob);
+          a.download = "san-pham-mau.csv";
+          a.click();
+        }}>Tải CSV mẫu sản phẩm</Button>
+      </section>
     </main>
   );
 }
