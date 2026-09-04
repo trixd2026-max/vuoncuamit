@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { ProductCard } from "@/components/product-card";
 import { ProductImage } from "@/components/product-image";
 import { QtyControl } from "@/components/qty-control";
+import { ZaloMark } from "@/components/zalo-icon";
 import { useCatalog, findProduct } from "@/lib/catalog-store";
 import { categoryLabel, salePrice } from "@/lib/catalog";
 import { isAvailable, maxOrderQty, stockLabel } from "@/lib/inventory";
@@ -58,6 +59,15 @@ function ProductPage() {
     .filter((p) => p.category === product.category && p.id !== product.id && isAvailable(p))
     .slice(0, 4);
   const askText = `Chị ơi, em hỏi ${product.name} (${formatVnd(price)}/${product.unit}) còn hàng không ạ?`;
+  const orderText = [
+    `Xin chào ${SHOP.owner},`,
+    `Em muốn đặt:`,
+    `- ${qty} ${product.unit} ${product.name}`,
+    `Giá: ${formatVnd(price)}/${product.unit}`,
+    `Tạm tính: ${formatVnd(price * qty)}`,
+    ``,
+    `Em chờ chị xác nhận ạ!`,
+  ].join("\n");
 
   return (
     <main className="mx-auto max-w-6xl px-4 py-10">
@@ -67,10 +77,19 @@ function ProductPage() {
         {categoryLabel(product.category)}
       </p>
       <div className="mt-6 grid gap-10 lg:grid-cols-2">
-        <div className="overflow-hidden rounded-2xl bg-muted">
-          <div className="aspect-portrait">
+        <div className="relative overflow-hidden rounded-2xl bg-muted">
+          <div className={`aspect-portrait ${!available ? "opacity-60 grayscale" : ""}`}>
             <ProductImage src={product.image} alt={product.name} />
           </div>
+          {!available ? (
+            <span className="absolute top-4 left-4 rounded-full bg-red-600 px-3 py-1.5 text-sm font-semibold text-white shadow">
+              Hết hàng
+            </span>
+          ) : label?.startsWith("Sắp hết") ? (
+            <span className="absolute top-4 left-4 rounded-full bg-amber-600 px-3 py-1.5 text-sm font-semibold text-white shadow">
+              {label}
+            </span>
+          ) : null}
         </div>
         <div>
           <p className="text-xs tracking-wide text-muted-foreground uppercase">
@@ -82,7 +101,15 @@ function ProductPage() {
             <span className="text-base text-muted-foreground">/{product.unit}</span>
           </p>
           {label ? (
-            <p className={`mt-2 text-sm ${available ? "text-muted-foreground" : "text-destructive"}`}>
+            <p
+              className={`mt-2 text-sm font-medium ${
+                available
+                  ? label.startsWith("Sắp hết")
+                    ? "text-amber-700"
+                    : "text-muted-foreground"
+                  : "text-red-600"
+              }`}
+            >
               {label}
             </p>
           ) : null}
@@ -106,6 +133,19 @@ function ProductPage() {
           </div>
           <div className="mt-4 flex flex-wrap gap-3">
             <Button
+              size="lg"
+              className="gap-2 bg-[#0068ff] text-white hover:bg-[#0055d4]"
+              onClick={() => {
+                void copyAndOpenZalo(orderText).then((copied) => {
+                  if (copied) toast.success("Đã copy đơn — dán vào Zalo");
+                  else toast.message("Đã mở Zalo");
+                });
+              }}
+            >
+              <ZaloMark className="size-4" />
+              Đặt qua Zalo
+            </Button>
+            <Button
               variant="outline"
               onClick={() => {
                 void copyAndOpenZalo(askText).then((copied) => {
@@ -113,14 +153,14 @@ function ProductPage() {
                 });
               }}
             >
-              Nhắn Zalo hỏi hàng
+              Hỏi còn hàng
             </Button>
             <Button asChild variant="ghost">
               <a href={`tel:${SHOP.phone}`}>Gọi {SHOP.phoneDisplay}</a>
             </Button>
           </div>
           {!available ? (
-            <p className="mt-4 text-sm text-destructive">Tạm hết — gọi để đặt trước.</p>
+            <p className="mt-4 text-sm text-red-600">Tạm hết — bấm Đặt qua Zalo hoặc gọi để đặt trước.</p>
           ) : null}
         </div>
       </div>
