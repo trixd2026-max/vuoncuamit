@@ -93,14 +93,6 @@ export const fetchCatalog = createServerFn({ method: "POST" })
     };
   });
 
-export type OrderLinePayload = {
-  productId: string;
-  name: string;
-  qty: number;
-  unit: string;
-  price: number;
-};
-
 export type OrderPayload = {
   orderId: string;
   name: string;
@@ -158,52 +150,96 @@ export const lookupOrders = createServerFn({ method: "POST" })
     if (!id) {
       return {
         orders: [],
-        warning: "Chưa cấu hình Sheet ID — vào cuối trang Quản lý → nhập Sheet ID → Lưu & đồng bộ",
+        warning:
+          "Chưa cấu hình Sheet ID — vào cuối trang Quản lý → nhập Sheet ID sản phẩm → Lưu & đồng bộ",
       };
     }
-    const sheetName = encodeURIComponent(data.ordersSheetName?.trim() || "DonHang");
-    const urls = [
-      `https://docs.google.com/spreadsheets/d/${id}/gviz/tq?tqx=out:csv&sheet=${sheetName}`,
-      `https://docs.google.com/spreadsheets/d/${id}/export?format=csv&sheet=${sheetName}`,
-    ];
+
+    const preferred = (data.ordersSheetName || "DonHang").trim() || "DonHang";
+    const tabCandidates = Array.from(
+      new Set([
+        preferred,
+        "DonHang",
+        "Don hang",
+        "Đơn hàng",
+        "Orders",
+      ]),
+    );
+
     const errors: string[] = [];
-    for (const url of urls) {
-      try {
-        const text = await fetchText(url);
-        if (!isProbablyCsv(text)) {
-          errors.push(
-            "Không đọc được tab Đơn hàng — kiểm tra tên tab (DonHang) và chia sẻ Sheet 'bất kỳ ai có liên kết'.",
-          );
-          continue;
-        }
-        let orders = ordersFromCsv(text);
-        const phoneQ = data.phone?.trim();
-        if (phoneQ) {
-          const nq = normalizePhone(phoneQ);
-          if (nq.length < 9) {
-            return { orders: [], warning: "Số điện thoại chưa đủ" };
+
+    for (const tab of tabCandidates) {
+      const sheetName = encodeURIComponent(tab);
+      const urls = [
+        `https://docs.google.com/spreadsheets/d/${id}/gviz/tq?tqx=out:csv&sheet=${sheetName}`,
+        `https://docs.google.com/spreadsheets/d/${id}/export?format=csv&sheet=${sheetName}`,
+      ];
+      for (const url of urls) {
+        try {
+          const text = await fetchText(url);
+          if (!isProbablyCsv(text)) {
+            errors.push(`Tab "${tab}": không đọc được CSV (chia sẻ Sheet?).`);
+            continue;
           }
-          orders = orders.filter((o) => {
-            const op = normalizePhone(o.phone);
-            return op === nq || op.endsWith(nq.slice(-9)) || nq.endsWith(op.slice(-9));
-          });
+          // Tránh nhầm tab sản phẩm (header id,ten,gia...)
+          const firstLine = text.trimStart().split(/\r?\n/)[0] || "";
+          const lower = firstLine.toLowerCase();
+          if (
+            lower.includes("danh_muc") ||
+            lower.includes("don_vi") ||
+            (lower.includes(",ten,") && lower.startsWith("id,"))
+          ) {
+            errors.push(`Tab "${tab}" giống catalog SP, bỏ qua.`);
+            continue;
+          }
+          let orders = ordersFromCsv(text);
+          const phoneQ = data.phone?.trim();
+          if (phoneQ) {
+            const nq = normalizePhone(phoneQ);
+            if (nq.length < 9) {
+              return { orders: [], warning: "Số điện thoại chưa đủ" };
+            }
+            orders = orders.filter((o) => {
+              const op = normalizePhone(o.phone);
+              return (
+                op === nq ||
+                op.endsWith(nq.slice(-9)) ||
+                nq.endsWith(op.slice(-9))
+              );
+            });
+          }
+          const limit =
+            data.limit && data.limit > 0 ? data.limit : phoneQ ? 20 : 500;
+          if (orders.length === 0) {
+            // Header có MaDon nhưng chưa có dòng → vẫn OK, không báo lỗi khớp cột
+            if (
+              /madon|ma_don|order/i.test(firstLine) &&
+              /thoigian|thoi_gian|time/i.test(firstLine)
+            ) {
+              return {
+                orders: [],
+                warning: `Tab "${tab}" đúng cấu trúc nhưng chưa có đơn.`,
+              };
+            }
+            errors.push(
+              `Tab "${tab}": header không khớp (cần MaDon / ThoiGian / TongTien).`,
+            );
+            continue;
+          }
+          return { orders: orders.slice(0, limit) };
+        } catch (err) {
+          errors.push(
+            err instanceof Error ? err.message : `Lỗi mạng tab ${tab}`,
+          );
         }
-        // Admin cần nhiều đơn để thống kê đúng (mặc định 500)
-        const limit = data.limit && data.limit > 0 ? data.limit : phoneQ ? 20 : 500;
-        if (orders.length === 0) {
-          return {
-            orders: [],
-            warning: "Tab đơn hàng trống hoặc header cột không khớp (cần MaDon / ThoiGian / TongTien).",
-          };
-        }
-        return { orders: orders.slice(0, limit) };
-      } catch (err) {
-        errors.push(err instanceof Error ? err.message : "Loi mang");
       }
     }
+
     return {
       orders: [],
-      warning: errors[0] ?? "Không tải được log đơn",
+      warning:
+        errors[0] ??
+        "Không tải được log đơn — kiểm tra Sheet ID + tên tab DonHang + chia sẻ 'bất kỳ ai có liên kết'.",
     };
   });
 
@@ -240,7 +276,12 @@ async function postWebhookUpdate(
 
   const tryParse = (text: string) => {
     try {
-      return JSON.parse(text) as { ok?: boolean; error?: string; created?: boolean; action?: string };
+      return JSON.parse(text) as {
+        ok?: boolean;
+        error?: string;
+        created?: boolean;
+        action?: string;
+      };
     } catch {
       return null;
     }
@@ -371,7 +412,6 @@ export const updateOrderCustomer = createServerFn({ method: "POST" })
     return { ok: result.ok, error: result.error };
   });
 
-/** Ghi snapshot báo cáo vào tab BaoCao trên cùng Google Sheet */
 export type SaveReportInput = {
   webhookUrl: string;
   report: Record<string, string | number>;
