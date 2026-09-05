@@ -1,13 +1,9 @@
-/**
- * Vuon Cua Mit — Apps Script
- *
- * Ban day du dang chay tren Google (webhook don hang).
- * De BAT BAO CAO TU DONG: dan file public/apps-script-auto-report.gs
- * vao cuoi project Apps Script, roi chay setupDailyReportTrigger().
- *
- * Huong dan: docs/bao-cao-tu-dong.md
- * Web: https://vuoncuamit.vercel.app/bao-cao
- *
- * Neu can copy lai toan bo script cu: lay tu commit main truoc PR nay
- * hoac tu ban Deploy dang dung tren script.google.com
+/** Vuon Cua Mit Apps Script + logging + upsert + doGet */
+var ALERT_EMAIL = "trixd2026@gmail.com";
+var LOW_STOCK_THRESHOLD = 3;
+var SHOP_NAME = "Vuon Cua Mit";
+
+/** Full script is deployed on Google Apps Script (webhook).
+ *  Auto daily report: paste public/apps-script-auto-report.gs at end of project,
+ *  then run setupDailyReportTrigger(). See docs/bao-cao-tu-dong.md
  */
