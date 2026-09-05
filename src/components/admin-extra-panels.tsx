@@ -4,16 +4,24 @@ import {
   formatOrderTotal,
   normalizeOrderStatus,
   PIPELINE_STATUSES,
-  parseOrderTotalNum,
   type ShopOrder,
   type CustomerAgg,
 } from "@/lib/orders";
 import { sendZaloTemplate, customerTelUrl, customerZaloUrl } from "@/lib/zalo";
-import { buildOrdersCsv, computeDayCompare, compute3DayCompare, computeWeekCompare, computeMonthCompare } from "@/lib/admin-stats";
+import {
+  buildOrdersCsv,
+  buildReportSnapshot,
+  computeAllTimeStats,
+  computeDayCompare,
+  compute3DayCompare,
+  computeWeekCompare,
+  computeMonthCompare,
+  computeYesterdayStats,
+} from "@/lib/admin-stats";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
-import { updateOrderStatus } from "@/lib/sheet";
-import { useMemo } from "react";
+import { updateOrderStatus, saveReportToSheet } from "@/lib/sheet";
+import { useMemo, useState } from "react";
 
 type CashRow = { id: string; type: string; amount: number; note: string; at: string };
 
@@ -24,6 +32,10 @@ function downloadCsv(csv: string, filename: string) {
   a.download = filename;
   a.click();
   URL.revokeObjectURL(a.href);
+}
+
+function fmtMoney(n: number) {
+  return new Intl.NumberFormat("vi-VN").format(Math.round(n)) + "đ";
 }
 
 export function AdminPipelineBoard(props: {
@@ -109,8 +121,7 @@ export function AdminCustomersPanel(props: {
               <div>
                 <p className="font-semibold">{c.name}</p>
                 <p className="tabular-nums">{c.phone}</p>
-                <p className="text-xs text-muted-foreground">{c.orderCount} đơn · {new Intl.NumberFormat("vi-VN").format(Math.round(c.totalSpend))}đ · gần nhất {c.lastOrderAt || "—"}</p>
-                {c.notes[0] ? <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">{c.notes.slice(0, 2).join(" · ")}</p> : null}
+                <p className="text-xs text-muted-foreground">{c.orderCount} đơn · {fmtMoney(c.totalSpend)} · gần nhất {c.lastOrderAt || "—"}</p>
               </div>
               <div className="flex gap-1">
                 <Button type="button" size="sm" variant="outline" className="h-8 text-xs" asChild>
@@ -144,20 +155,21 @@ export function AdminCustomersPanel(props: {
   );
 }
 
-function CompareCard({ title, cur, prev, pctVal, prevLabel }: {
+function CompareCard({ title, value, sub, good }: {
   title: string;
-  cur: number;
-  prev: number;
-  pctVal: number;
-  prevLabel: string;
+  value: string;
+  sub?: string;
+  good?: boolean | null;
 }) {
   return (
     <div className="rounded-xl border bg-card/70 px-3 py-2">
       <p className="text-[10px] uppercase text-muted-foreground">{title}</p>
-      <p className="font-display text-xl tabular-nums">{typeof cur === "number" && cur > 1000 ? new Intl.NumberFormat("vi-VN").format(Math.round(cur)) + (title.includes("Đơn") ? "" : "đ") : cur}</p>
-      <p className={cn("text-[11px]", pctVal >= 0 ? "text-emerald-700" : "text-red-600")}>
-        {pctVal >= 0 ? "+" : ""}{pctVal}% vs {prevLabel}
-      </p>
+      <p className="font-display text-xl tabular-nums">{value}</p>
+      {sub ? (
+        <p className={cn("text-[11px]", good === true ? "text-emerald-700" : good === false ? "text-red-600" : "text-muted-foreground")}>
+          {sub}
+        </p>
+      ) : null}
     </div>
   );
 }
@@ -176,60 +188,120 @@ export function AdminReportsPanel(props: {
   cashNote: string;
   setCashNote: (v: string) => void;
   parseOrderTime: (t: string) => Date | null;
+  webhookUrl?: string;
+  ordersWarning?: string;
 }) {
   const {
     orders, topItems, low, out, cashRows, setCashRows,
     cashType, setCashType, cashAmount, setCashAmount, cashNote, setCashNote,
+    webhookUrl = "", ordersWarning = "",
   } = props;
 
+  const [syncing, setSyncing] = useState(false);
   const dayCmp = useMemo(() => computeDayCompare(orders), [orders]);
+  const yest = useMemo(() => computeYesterdayStats(orders), [orders]);
   const d3Cmp = useMemo(() => compute3DayCompare(orders), [orders]);
   const weekCmp = useMemo(() => computeWeekCompare(orders), [orders]);
   const monthCmp = useMemo(() => computeMonthCompare(orders), [orders]);
+  const allStats = useMemo(() => computeAllTimeStats(orders), [orders]);
 
   function exportRange(days?: number) {
     const { csv, count, rev, filename } = buildOrdersCsv(orders, days);
     downloadCsv(csv, filename);
-    toast.success(`Đã tải ${filename}: ${count} đơn · ${new Intl.NumberFormat("vi-VN").format(Math.round(rev))}đ`);
+    toast.success(`Đã tải ${filename}: ${count} đơn · ${fmtMoney(rev)}`);
+  }
+
+  async function syncToSheet() {
+    if (!webhookUrl.trim()) {
+      toast.error("Chưa cấu hình webhook — kéo xuống cuối trang Quản lý để lưu webhook");
+      return;
+    }
+    if (orders.length === 0) {
+      toast.error("Chưa có đơn để ghi báo cáo — kiểm tra Sheet ID & tab DonHang");
+      return;
+    }
+    setSyncing(true);
+    const snap = buildReportSnapshot(orders);
+    const res = await saveReportToSheet({
+      data: {
+        webhookUrl: webhookUrl.trim(),
+        reportSheetName: "BaoCao",
+        report: snap,
+      },
+    });
+    setSyncing(false);
+    if (res.ok) toast.success("Đã ghi báo cáo vào tab BaoCao trên Google Sheet");
+    else toast.error(res.error || "Không ghi được — deploy lại Apps Script (action saveReport)");
   }
 
   return (
     <section className="mt-8 space-y-6">
+      {orders.length === 0 ? (
+        <div className="rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950">
+          <p className="font-semibold">Chưa có dữ liệu đơn để báo cáo</p>
+          <ul className="mt-2 list-inside list-disc space-y-1 text-xs">
+            <li>Cuối trang Quản lý → nhập <strong>Sheet ID</strong> + tên tab đơn (<code>DonHang</code>) → <strong>Lưu & đồng bộ</strong></li>
+            <li>Sheet phải chia sẻ "Bất kỳ ai có liên kết" (viewer)</li>
+            <li>Header cột: ThoiGian, MaDon, Ten, DienThoai, TongTien, ChiTiet, TrangThai</li>
+            {ordersWarning ? <li className="text-red-700">{ordersWarning}</li> : null}
+          </ul>
+        </div>
+      ) : (
+        <div className="rounded-xl border border-emerald-200 bg-emerald-50/60 px-3 py-2 text-sm">
+          Đã tải <strong>{allStats.count}</strong> đơn · DT tổng <strong>{fmtMoney(allStats.rev)}</strong>
+          {allStats.unparsed > 0 ? (
+            <span className="text-amber-800"> · {allStats.unparsed} đơn chưa parse được ngày</span>
+          ) : null}
+        </div>
+      )}
+
       <div>
         <h2 className="font-display text-xl">Báo cáo & so sánh</h2>
-        <p className="mt-1 text-sm text-muted-foreground">Tự động theo ngày · 3 ngày · tuần · tháng (so với kỳ trước)</p>
+        <p className="mt-1 text-sm text-muted-foreground">Hôm nay · Hôm qua · 3 ngày · tuần · tháng</p>
 
         <div className="mt-4 space-y-3">
           <div>
-            <p className="mb-1.5 text-xs font-medium text-muted-foreground">{dayCmp.label}</p>
+            <p className="mb-1.5 text-xs font-medium text-muted-foreground">Hôm nay (so với hôm qua)</p>
             <div className="grid grid-cols-3 gap-2">
-              <CompareCard title="Đơn" cur={dayCmp.cur.count} prev={dayCmp.prev.count} pctVal={dayCmp.pctCount} prevLabel={dayCmp.prevLabel} />
-              <CompareCard title="Doanh thu" cur={dayCmp.cur.rev} prev={dayCmp.prev.rev} pctVal={dayCmp.pctRev} prevLabel={dayCmp.prevLabel} />
-              <CompareCard title="AOV" cur={dayCmp.cur.aov} prev={dayCmp.prev.aov} pctVal={dayCmp.pctAov} prevLabel={dayCmp.prevLabel} />
+              <CompareCard title="Đơn" value={String(dayCmp.cur.count)} sub={`${dayCmp.pctCount >= 0 ? "+" : ""}${dayCmp.pctCount}% vs hôm qua`} good={dayCmp.pctCount >= 0} />
+              <CompareCard title="Doanh thu" value={fmtMoney(dayCmp.cur.rev)} sub={`${dayCmp.pctRev >= 0 ? "+" : ""}${dayCmp.pctRev}% vs hôm qua`} good={dayCmp.pctRev >= 0} />
+              <CompareCard title="AOV" value={fmtMoney(dayCmp.cur.aov)} sub={`${dayCmp.pctAov >= 0 ? "+" : ""}${dayCmp.pctAov}%`} good={dayCmp.pctAov >= 0} />
             </div>
           </div>
+
+          <div>
+            <p className="mb-1.5 text-xs font-medium text-muted-foreground">Hôm qua {yest.dateKey ? `(${yest.dateKey})` : ""}</p>
+            <div className="grid grid-cols-3 gap-2">
+              <CompareCard title="Đơn" value={String(yest.count)} />
+              <CompareCard title="Doanh thu" value={fmtMoney(yest.rev)} />
+              <CompareCard title="AOV" value={fmtMoney(yest.aov)} />
+            </div>
+          </div>
+
           <div>
             <p className="mb-1.5 text-xs font-medium text-muted-foreground">{d3Cmp.label}</p>
             <div className="grid grid-cols-3 gap-2">
-              <CompareCard title="Đơn" cur={d3Cmp.cur.count} prev={d3Cmp.prev.count} pctVal={d3Cmp.pctCount} prevLabel={d3Cmp.prevLabel} />
-              <CompareCard title="Doanh thu" cur={d3Cmp.cur.rev} prev={d3Cmp.prev.rev} pctVal={d3Cmp.pctRev} prevLabel={d3Cmp.prevLabel} />
-              <CompareCard title="AOV" cur={d3Cmp.cur.aov} prev={d3Cmp.prev.aov} pctVal={d3Cmp.pctAov} prevLabel={d3Cmp.prevLabel} />
+              <CompareCard title="Đơn" value={String(d3Cmp.cur.count)} sub={`${d3Cmp.pctCount >= 0 ? "+" : ""}${d3Cmp.pctCount}% vs ${d3Cmp.prevLabel}`} good={d3Cmp.pctCount >= 0} />
+              <CompareCard title="Doanh thu" value={fmtMoney(d3Cmp.cur.rev)} sub={`${d3Cmp.pctRev >= 0 ? "+" : ""}${d3Cmp.pctRev}%`} good={d3Cmp.pctRev >= 0} />
+              <CompareCard title="AOV" value={fmtMoney(d3Cmp.cur.aov)} sub={`${d3Cmp.pctAov >= 0 ? "+" : ""}${d3Cmp.pctAov}%`} good={d3Cmp.pctAov >= 0} />
             </div>
           </div>
+
           <div>
             <p className="mb-1.5 text-xs font-medium text-muted-foreground">{weekCmp.label}</p>
             <div className="grid grid-cols-3 gap-2">
-              <CompareCard title="Đơn" cur={weekCmp.cur.count} prev={weekCmp.prev.count} pctVal={weekCmp.pctCount} prevLabel={weekCmp.prevLabel} />
-              <CompareCard title="Doanh thu" cur={weekCmp.cur.rev} prev={weekCmp.prev.rev} pctVal={weekCmp.pctRev} prevLabel={weekCmp.prevLabel} />
-              <CompareCard title="AOV" cur={weekCmp.cur.aov} prev={weekCmp.prev.aov} pctVal={weekCmp.pctAov} prevLabel={weekCmp.prevLabel} />
+              <CompareCard title="Đơn" value={String(weekCmp.cur.count)} sub={`${weekCmp.pctCount >= 0 ? "+" : ""}${weekCmp.pctCount}% vs tuần trước`} good={weekCmp.pctCount >= 0} />
+              <CompareCard title="Doanh thu" value={fmtMoney(weekCmp.cur.rev)} sub={`${weekCmp.pctRev >= 0 ? "+" : ""}${weekCmp.pctRev}%`} good={weekCmp.pctRev >= 0} />
+              <CompareCard title="AOV" value={fmtMoney(weekCmp.cur.aov)} sub={`${weekCmp.pctAov >= 0 ? "+" : ""}${weekCmp.pctAov}%`} good={weekCmp.pctAov >= 0} />
             </div>
           </div>
+
           <div>
             <p className="mb-1.5 text-xs font-medium text-muted-foreground">{monthCmp.label}</p>
             <div className="grid grid-cols-3 gap-2">
-              <CompareCard title="Đơn" cur={monthCmp.cur.count} prev={monthCmp.prev.count} pctVal={monthCmp.pctCount} prevLabel={monthCmp.prevLabel} />
-              <CompareCard title="Doanh thu" cur={monthCmp.cur.rev} prev={monthCmp.prev.rev} pctVal={monthCmp.pctRev} prevLabel={monthCmp.prevLabel} />
-              <CompareCard title="AOV" cur={monthCmp.cur.aov} prev={monthCmp.prev.aov} pctVal={monthCmp.pctAov} prevLabel={monthCmp.prevLabel} />
+              <CompareCard title="Đơn" value={String(monthCmp.cur.count)} sub={`${monthCmp.pctCount >= 0 ? "+" : ""}${monthCmp.pctCount}% vs 30 ngày trước`} good={monthCmp.pctCount >= 0} />
+              <CompareCard title="Doanh thu" value={fmtMoney(monthCmp.cur.rev)} sub={`${monthCmp.pctRev >= 0 ? "+" : ""}${monthCmp.pctRev}%`} good={monthCmp.pctRev >= 0} />
+              <CompareCard title="AOV" value={fmtMoney(monthCmp.cur.aov)} sub={`${monthCmp.pctAov >= 0 ? "+" : ""}${monthCmp.pctAov}%`} good={monthCmp.pctAov >= 0} />
             </div>
           </div>
         </div>
@@ -240,8 +312,13 @@ export function AdminReportsPanel(props: {
           <Button type="button" size="sm" variant="outline" onClick={() => exportRange(7)}>Excel 7 ngày</Button>
           <Button type="button" size="sm" variant="outline" onClick={() => exportRange(30)}>Excel 30 ngày</Button>
           <Button type="button" size="sm" onClick={() => exportRange()}>Excel tất cả</Button>
+          <Button type="button" size="sm" variant="secondary" disabled={syncing} onClick={() => void syncToSheet()}>
+            {syncing ? "Đang ghi…" : "Đồng bộ → Sheet BaoCao"}
+          </Button>
         </div>
-        <p className="mt-1 text-xs text-muted-foreground">File CSV mở được bằng Excel / Google Sheets (UTF-8 BOM).</p>
+        <p className="mt-1 text-xs text-muted-foreground">
+          CSV mở bằng Excel. Nút <strong>Đồng bộ → Sheet BaoCao</strong> ghi 1 dòng tổng hợp vào tab <code>BaoCao</code> (cùng file Sheet, cần deploy Apps Script có action saveReport).
+        </p>
       </div>
 
       <div>
@@ -282,7 +359,7 @@ export function AdminReportsPanel(props: {
           {cashRows.slice(0, 20).map((r) => (
             <li key={r.id} className="flex justify-between gap-2 border-b py-1">
               <span className={r.type === "thu" ? "text-emerald-700" : "text-red-600"}>
-                {r.type === "thu" ? "+" : "-"}{new Intl.NumberFormat("vi-VN").format(r.amount)}đ · {r.note || "—"}
+                {r.type === "thu" ? "+" : "-"}{fmtMoney(r.amount)} · {r.note || "—"}
               </span>
               <span className="text-xs text-muted-foreground">{r.at}</span>
             </li>
