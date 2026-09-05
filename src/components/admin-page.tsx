@@ -14,7 +14,7 @@ import {
   formatOrderTotal, maskWebhookUrl, normalizeOrderStatus, normalizePhone,
   ORDER_STATUSES, type ShopOrder,
 } from "@/lib/orders";
-import { printDeliverySlip, printDeliverySlips, printBoxLabels, printPackingList, type SlipPaper } from "@/lib/order-print";
+import { printDeliverySlip, type SlipPaper } from "@/lib/order-print";
 import { customerTelUrl, sendZaloTemplate } from "@/lib/zalo";
 import {
   parseOrderTime, isNeedCallback, computeWeekCompare, computeOpsAlerts,
@@ -52,9 +52,6 @@ export function AdminPage() {
   const [filterDate, setFilterDate] = useState("");
   const [filterStatus, setFilterStatus] = useState("");
   const [filterPhone, setFilterPhone] = useState("");
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
-  const [bulkStatus, setBulkStatus] = useState("Đã xác nhận");
-  const [bulkBusy, setBulkBusy] = useState(false);
   const [paperSize, setPaperSize] = useState<SlipPaper>("K80");
   const [statsRange, setStatsRange] = useState<"1" | "3" | "7" | "30">("7");
   const [adminTab, setAdminTab] = useState<"don" | "pipeline" | "khach" | "baocao">("don");
@@ -62,6 +59,7 @@ export function AdminPage() {
   const [cashAmount, setCashAmount] = useState("");
   const [cashType, setCashType] = useState<"thu" | "chi">("thu");
   const [cashRows, setCashRows] = useState<{ id: string; type: string; amount: number; note: string; at: string }[]>([]);
+  const [bulkBusy, setBulkBusy] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -84,7 +82,7 @@ export function AdminPage() {
     setOrdersWarning("");
     try {
       const res = await lookupOrders({
-        data: { sheetId: sheetId.trim() || cfg.sheetId, ordersSheetName: ordersSheetName.trim() || "DonHang", limit: 80 },
+        data: { sheetId: sheetId.trim() || cfg.sheetId, ordersSheetName: ordersSheetName.trim() || "DonHang", limit: 500 },
       });
       setOrders(res.orders);
       if (res.warning) setOrdersWarning(res.warning);
@@ -252,6 +250,12 @@ export function AdminPage() {
         </form>
       ) : null}
 
+      {ordersWarning ? (
+        <div className="mt-4 rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-950">
+          {ordersWarning}
+        </div>
+      ) : null}
+
       <section className="mt-8 grid grid-cols-2 gap-3 sm:grid-cols-5">
         <div className="rounded-xl border bg-card/70 px-3 py-3"><p className="text-[10px] uppercase text-muted-foreground">Đơn hôm nay</p><p className="mt-1 font-display text-2xl tabular-nums">{todayStats.count}</p></div>
         <div className="rounded-xl border bg-card/70 px-3 py-3"><p className="text-[10px] uppercase text-muted-foreground">Doanh thu</p><p className="mt-1 font-display text-2xl tabular-nums">{todayStats.revenueLabel}</p></div>
@@ -287,18 +291,6 @@ export function AdminPage() {
         </div>
       </section>
 
-      {(opsAlerts.needCb.length+opsAlerts.shippingLate.length+opsAlerts.badPhone.length+opsAlerts.badAddr.length)>0 ? (
-        <section className="mt-4 rounded-xl border border-red-200 bg-red-50/80 p-3">
-          <h2 className="font-display text-base text-red-800">Cảnh báo vận hành</h2>
-          <ul className="mt-2 space-y-1 text-sm text-red-900">
-            {opsAlerts.needCb.length ? <li>Cần gọi lại (Mới {'>'} 30p): <strong>{opsAlerts.needCb.length}</strong></li> : null}
-            {opsAlerts.shippingLate.length ? <li>Đang giao {'>'} 1 ngày: <strong>{opsAlerts.shippingLate.length}</strong></li> : null}
-            {opsAlerts.badPhone.length ? <li>SĐT lạ: <strong>{opsAlerts.badPhone.length}</strong></li> : null}
-            {opsAlerts.badAddr.length ? <li>Địa chỉ thiếu: <strong>{opsAlerts.badAddr.length}</strong></li> : null}
-          </ul>
-        </section>
-      ) : null}
-
       <section className="mt-6 rounded-xl border bg-card/40 p-3">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <h2 className="font-display text-lg">Thống kê {periodStats.days} ngày</h2>
@@ -309,7 +301,7 @@ export function AdminPage() {
             <Button type="button" size="sm" variant={statsRange==="30"?"default":"outline"} className="h-8 text-xs" onClick={()=>setStatsRange("30")}>30 ngày</Button>
           </div>
         </div>
-        <p className="mt-1 text-sm text-muted-foreground">{periodStats.totalCount} đơn · {new Intl.NumberFormat("vi-VN").format(periodStats.totalRev)}đ</p>
+        <p className="mt-1 text-sm text-muted-foreground">{periodStats.totalCount} đơn · {new Intl.NumberFormat("vi-VN").format(periodStats.totalRev)}đ · đã tải {orders.length} đơn</p>
         <div className="mt-3 flex h-28 items-end gap-0.5">
           {periodStats.buckets.map((b) => (
             <div key={b.key} className="flex min-w-0 flex-1 flex-col items-center gap-1" title={`${b.label}: ${b.count}`}>
@@ -331,46 +323,41 @@ export function AdminPage() {
             </select>
             <Input type="tel" className="h-9 w-28" placeholder="SĐT" value={filterPhone} onChange={(e)=>setFilterPhone(e.target.value)} />
             <Button type="button" variant="outline" size="sm" className="h-9" disabled={ordersLoading} onClick={()=>void loadOrders()}>{ordersLoading?"…":"Làm mới"}</Button>
-            <select className="h-9 rounded-md border px-1 text-xs" value={paperSize} onChange={(e)=>setPaperSize(e.target.value as SlipPaper)}>
-              <option value="K80">K80</option><option value="A6">A6</option><option value="A5">A5</option>
-            </select>
           </div>
-          <p className="mt-2 text-xs text-muted-foreground">{filteredOrders.length}/{orders.length} đơn{ordersWarning?` · ${ordersWarning}`:""}</p>
+          <p className="mt-2 text-xs text-muted-foreground">{filteredOrders.length}/{orders.length} đơn</p>
           <ul className="mt-4 space-y-3">
             {filteredOrders.map((o)=>{
               const need=isNeedCallback(o);
               return (
                 <li key={orderKey(o)} className={cn("rounded-xl border p-3", need&&"border-red-400 bg-red-50")}>
-                  <div className="min-w-0 flex-1">
-                    <p className="font-semibold">#{o.orderId} · {o.name||"Khách"}</p>
-                    <p className="text-sm">{o.phone} · {formatOrderTotal(o.total)}</p>
-                    <p className="text-xs text-muted-foreground">{o.time} · {normalizeOrderStatus(o.status)}</p>
-                    <p className="mt-1 text-sm line-clamp-2">{o.items}</p>
-                    <div className="mt-2 flex flex-wrap gap-1">
-                      <select className="h-8 rounded-md border px-1 text-xs" value={normalizeOrderStatus(o.status)}
-                        onChange={(e)=>{
-                          const st=e.target.value;
-                          void (async()=>{
-                            if(!webhookUrl.trim()){toast.error("Chưa webhook");return;}
-                            const res=await updateOrderStatus({data:{webhookUrl:webhookUrl.trim(),orderId:o.orderId,status:st,ordersSheetName:ordersSheetName.trim()||"DonHang"}});
-                            if(res.ok){setOrders((prev)=>prev.map((x)=>x.orderId===o.orderId?{...x,status:st}:x)); toast.success(`→ ${st}`);}
-                            else toast.error(res.error||"Lỗi");
-                          })();
-                        }}>
-                        {ORDER_STATUSES.map((s)=><option key={s} value={s}>{s}</option>)}
-                      </select>
-                      <Button type="button" size="sm" variant="outline" className="h-8 text-xs" onClick={()=>{
-                        const r=printDeliverySlip(toSlip(o),paperSize);
-                        if(r.ok) toast.message(`In ${paperSize}`);
-                      }}>In</Button>
-                      <Button type="button" size="sm" variant="outline" className="h-8 text-xs" onClick={()=>{
-                        void sendZaloTemplate(o.phone,"received",{orderId:o.orderId,name:o.name,total:formatOrderTotal(o.total),items:o.items});
-                        toast.message("Zalo nhận");
-                      }}>Zalo</Button>
-                      <Button type="button" size="sm" variant="ghost" className="h-8 text-xs" asChild>
-                        <a href={customerTelUrl(o.phone)}>Gọi</a>
-                      </Button>
-                    </div>
+                  <p className="font-semibold">#{o.orderId} · {o.name||"Khách"}</p>
+                  <p className="text-sm">{o.phone} · {formatOrderTotal(o.total)}</p>
+                  <p className="text-xs text-muted-foreground">{o.time} · {normalizeOrderStatus(o.status)}</p>
+                  <p className="mt-1 text-sm line-clamp-2">{o.items}</p>
+                  <div className="mt-2 flex flex-wrap gap-1">
+                    <select className="h-8 rounded-md border px-1 text-xs" value={normalizeOrderStatus(o.status)}
+                      onChange={(e)=>{
+                        const st=e.target.value;
+                        void (async()=>{
+                          if(!webhookUrl.trim()){toast.error("Chưa webhook");return;}
+                          const res=await updateOrderStatus({data:{webhookUrl:webhookUrl.trim(),orderId:o.orderId,status:st,ordersSheetName:ordersSheetName.trim()||"DonHang"}});
+                          if(res.ok){setOrders((prev)=>prev.map((x)=>x.orderId===o.orderId?{...x,status:st}:x)); toast.success(`→ ${st}`);}
+                          else toast.error(res.error||"Lỗi");
+                        })();
+                      }}>
+                      {ORDER_STATUSES.map((s)=><option key={s} value={s}>{s}</option>)}
+                    </select>
+                    <Button type="button" size="sm" variant="outline" className="h-8 text-xs" onClick={()=>{
+                      const r=printDeliverySlip(toSlip(o),paperSize);
+                      if(r.ok) toast.message(`In ${paperSize}`);
+                    }}>In</Button>
+                    <Button type="button" size="sm" variant="outline" className="h-8 text-xs" onClick={()=>{
+                      void sendZaloTemplate(o.phone,"received",{orderId:o.orderId,name:o.name,total:formatOrderTotal(o.total),items:o.items});
+                      toast.message("Zalo nhận");
+                    }}>Zalo</Button>
+                    <Button type="button" size="sm" variant="ghost" className="h-8 text-xs" asChild>
+                      <a href={customerTelUrl(o.phone)}>Gọi</a>
+                    </Button>
                   </div>
                 </li>
               );
@@ -388,12 +375,12 @@ export function AdminPage() {
         <AdminReportsPanel orders={orders} topItems={topItems} low={low} out={out}
           cashRows={cashRows} setCashRows={setCashRows} cashType={cashType} setCashType={setCashType}
           cashAmount={cashAmount} setCashAmount={setCashAmount} cashNote={cashNote} setCashNote={setCashNote}
-          parseOrderTime={parseOrderTime} />
+          parseOrderTime={parseOrderTime} webhookUrl={webhookUrl} ordersWarning={ordersWarning} />
       ) : null}
 
       <h2 className="font-display mt-12 text-xl">Cấu hình Sheet</h2>
       <div className="mt-4 grid gap-3">
-        <Field label="Sheet ID"><Input value={sheetId} onChange={(e)=>setSheetId(e.target.value)} /></Field>
+        <Field label="Sheet ID"><Input value={sheetId} onChange={(e)=>setSheetId(e.target.value)} placeholder="1abc...xyz" /></Field>
         <Field label="Tab SP"><Input value={sheetName} onChange={(e)=>setSheetName(e.target.value)} /></Field>
         <Field label="gid"><Input value={gid} onChange={(e)=>setGid(e.target.value)} /></Field>
         <Field label="CSV URL"><Input value={csvUrl} onChange={(e)=>setCsvUrl(e.target.value)} /></Field>
@@ -404,7 +391,7 @@ export function AdminPage() {
           </div>
           {webhookUrl?<p className="mt-1 text-xs text-muted-foreground">{maskWebhookUrl(webhookUrl)}</p>:null}
         </Field>
-        <Field label="Tab đơn"><Input value={ordersSheetName} onChange={(e)=>setOrdersSheetName(e.target.value)} /></Field>
+        <Field label="Tab đơn"><Input value={ordersSheetName} onChange={(e)=>setOrdersSheetName(e.target.value)} placeholder="DonHang" /></Field>
         <div className="flex gap-2">
           <Button size="lg" onClick={()=>void save()} disabled={loading}>{loading?"…":"Lưu & đồng bộ"}</Button>
           <Button size="lg" variant="outline" onClick={()=>{
