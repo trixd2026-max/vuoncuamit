@@ -81,11 +81,7 @@ export function AdminPage() {
     setOrdersLoading(true);
     setOrdersWarning("");
     try {
-      // Ưu tiên Sheet đơn riêng nếu đã cấu hình ordersSheetId
-      const ordersId =
-        (typeof cfg.ordersSheetId === "string" && cfg.ordersSheetId.trim()) ||
-        sheetId.trim() ||
-        cfg.sheetId;
+      const ordersId = sheetId.trim() || cfg.sheetId;
       const res = await lookupOrders({
         data: { sheetId: ordersId, ordersSheetName: ordersSheetName.trim() || "DonHang", limit: 500 },
       });
@@ -98,7 +94,7 @@ export function AdminPage() {
     } finally {
       setOrdersLoading(false);
     }
-  }, [sheetId, ordersSheetName, cfg.sheetId, cfg.ordersSheetId]);
+  }, [sheetId, ordersSheetName, cfg.sheetId]);
 
   const orderKey = (o: ShopOrder) => `${o.orderId}|${o.time}`;
   const toSlip = (o: ShopOrder) => ({
@@ -201,7 +197,7 @@ export function AdminPage() {
       gid: gid.trim(),
       webhookUrl: webhookUrl.trim(),
       ordersSheetName: ordersSheetName.trim() || "DonHang",
-      ordersSheetId: "16nGPqH-8BesOPKqvyrZLsl07QZX_Ugpa0bIuKWyJcdU",
+      ordersSheetId: "",
     });
     await reload();
     const st = useCatalog.getState();
@@ -405,7 +401,7 @@ export function AdminPage() {
           }}>CSV mẫu</Button>
         </div>
         <p className="text-sm text-muted-foreground">Nguồn: {source} · {products.length} SP · sắp hết {low} · hết {out}{warning?` · ${warning}`:""}</p>
-        <p className="text-xs text-muted-foreground">Đơn/báo cáo đọc từ Sheet <code>16nGPqH-8BesOPKqvyrZLsl07QZX_Ugpa0bIuKWyJcdU</code> · trang <Link className="underline" to="/bao-cao">/bao-cao</Link></p>
+        <p className="text-xs text-muted-foreground">Đơn đọc từ Sheet sản phẩm tab <code>DonHang</code>. Báo cáo: <Link className="underline" to="/bao-cao">/bao-cao</Link></p>
       </div>
       <h2 className="font-display mt-12 text-xl">Apps Script</h2>
       <pre className="mt-3 max-h-80 overflow-auto rounded-xl bg-foreground p-4 text-xs text-background">{scriptLoading?"Đang tải…":script}</pre>
