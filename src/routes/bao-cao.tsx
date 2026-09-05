@@ -23,12 +23,12 @@ import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/bao-cao")({ component: BaoCaoPage });
 
-/** Sheet đơn hàng / báo cáo riêng (không dùng file sản phẩm) */
-const DEFAULT_ORDERS_SHEET_ID = "16nGPqH-8BesOPKqvyrZLsl07QZX_Ugpa0bIuKWyJcdU";
+/** Đơn thật nằm trên Sheet sản phẩm tab DonHang */
+const DEFAULT_ORDERS_SHEET_ID = "1PIwNQOmYupdqww3_Y5i1a4sPYpmHs2LNZlWIUlPsb5U";
 const DEFAULT_WEBHOOK =
   "https://script.google.com/macros/s/AKfycbxumqdKdq1meRnUgzSrrW9Q2cyTQisJJn77AbDtpL18_eXuN3tWINvSZg6kprLqLZQ/exec";
 const DEFAULT_TAB = "DonHang";
-const STORAGE_KEY = "vcm-bao-cao-cfg";
+const STORAGE_KEY = "vcm-bao-cao-cfg-v2";
 
 function fmtMoney(n: number) {
   return new Intl.NumberFormat("vi-VN").format(Math.round(n)) + "đ";
@@ -145,18 +145,15 @@ function BaoCaoPage() {
       <main className="mx-auto flex max-w-sm flex-col px-4 py-16">
         <p className="text-xs tracking-wide text-muted-foreground uppercase">Báo cáo</p>
         <h1 className="font-display mt-1 text-3xl">Nhập mã PIN</h1>
-        <form
-          className="mt-8 flex flex-col gap-3"
-          onSubmit={(e) => {
-            e.preventDefault();
-            if (unlockAdmin(pin)) {
-              setUnlocked(true);
-              setPinErr("");
-              setPin("");
-              toast.success("Đã mở khóa");
-            } else setPinErr("PIN không đúng");
-          }}
-        >
+        <form className="mt-8 flex flex-col gap-3" onSubmit={(e) => {
+          e.preventDefault();
+          if (unlockAdmin(pin)) {
+            setUnlocked(true);
+            setPinErr("");
+            setPin("");
+            toast.success("Đã mở khóa");
+          } else setPinErr("PIN không đúng");
+        }}>
           <Input type="password" inputMode="numeric" placeholder="Mã PIN" value={pin} onChange={(e) => setPin(e.target.value)} className="text-center text-lg tracking-widest" />
           {pinErr ? <p className="text-sm text-destructive">{pinErr}</p> : null}
           <Button type="submit" size="lg">Vào báo cáo</Button>
@@ -172,8 +169,9 @@ function BaoCaoPage() {
     <main className="mx-auto max-w-2xl px-4 py-10">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <p className="text-xs tracking-wide text-muted-foreground uppercase">Báo cáo riêng</p>
+          <p className="text-xs tracking-wide text-muted-foreground uppercase">Báo cáo</p>
           <h1 className="font-display text-4xl">Báo cáo bán hàng</h1>
+          <p className="mt-1 text-xs text-muted-foreground">Đọc đơn từ Sheet sản phẩm · tab DonHang</p>
         </div>
         <div className="flex flex-wrap gap-2">
           <Button type="button" variant="outline" size="sm" onClick={() => { lockAdmin(); setUnlocked(false); }}>Khóa</Button>
@@ -250,16 +248,14 @@ function BaoCaoPage() {
       </section>
 
       <section className="mt-8 rounded-xl border bg-card/40 p-4">
-        <h2 className="font-display text-lg">Cấu hình Sheet báo cáo</h2>
+        <h2 className="font-display text-lg">Cấu hình nguồn đơn</h2>
         <p className="mt-1 text-xs text-muted-foreground">
-          File riêng:{" "}
-          <a className="underline" href={`https://docs.google.com/spreadsheets/d/${sheetId}/edit`} target="_blank" rel="noreferrer">
-            mở Google Sheet
-          </a>
+          Mặc định: Sheet sản phẩm (có tab DonHang với đơn thật).{" "}
+          <a className="underline" href={`https://docs.google.com/spreadsheets/d/${sheetId}/edit`} target="_blank" rel="noreferrer">mở Sheet</a>
         </p>
         <div className="mt-3 grid gap-3">
           <label className="flex flex-col gap-1.5">
-            <Label>Sheet ID đơn hàng</Label>
+            <Label>Sheet ID (đọc đơn)</Label>
             <Input value={sheetId} onChange={(e) => setSheetId(e.target.value)} />
           </label>
           <label className="flex flex-col gap-1.5">
@@ -267,7 +263,7 @@ function BaoCaoPage() {
             <Input value={tabName} onChange={(e) => setTabName(e.target.value)} placeholder="DonHang" />
           </label>
           <label className="flex flex-col gap-1.5">
-            <Label>Webhook Apps Script</Label>
+            <Label>Webhook (ghi tổng hợp BaoCao)</Label>
             <Input value={webhook} onChange={(e) => setWebhook(e.target.value)} />
           </label>
           <Button type="button" onClick={saveCfg}>Lưu & tải lại</Button>
