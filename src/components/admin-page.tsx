@@ -81,8 +81,13 @@ export function AdminPage() {
     setOrdersLoading(true);
     setOrdersWarning("");
     try {
+      // Ưu tiên Sheet đơn riêng nếu đã cấu hình ordersSheetId
+      const ordersId =
+        (typeof cfg.ordersSheetId === "string" && cfg.ordersSheetId.trim()) ||
+        sheetId.trim() ||
+        cfg.sheetId;
       const res = await lookupOrders({
-        data: { sheetId: sheetId.trim() || cfg.sheetId, ordersSheetName: ordersSheetName.trim() || "DonHang", limit: 500 },
+        data: { sheetId: ordersId, ordersSheetName: ordersSheetName.trim() || "DonHang", limit: 500 },
       });
       setOrders(res.orders);
       if (res.warning) setOrdersWarning(res.warning);
@@ -93,7 +98,7 @@ export function AdminPage() {
     } finally {
       setOrdersLoading(false);
     }
-  }, [sheetId, ordersSheetName, cfg.sheetId]);
+  }, [sheetId, ordersSheetName, cfg.sheetId, cfg.ordersSheetId]);
 
   const orderKey = (o: ShopOrder) => `${o.orderId}|${o.time}`;
   const toSlip = (o: ShopOrder) => ({
@@ -196,6 +201,7 @@ export function AdminPage() {
       gid: gid.trim(),
       webhookUrl: webhookUrl.trim(),
       ordersSheetName: ordersSheetName.trim() || "DonHang",
+      ordersSheetId: "16nGPqH-8BesOPKqvyrZLsl07QZX_Ugpa0bIuKWyJcdU",
     });
     await reload();
     const st = useCatalog.getState();
@@ -232,6 +238,7 @@ export function AdminPage() {
         <Button type="button" variant="outline" size="sm" onClick={() => { lockAdmin(); setUnlocked(false); }}>Khóa</Button>
         <Button type="button" variant="ghost" size="sm" onClick={() => setShowPinChange((v) => !v)}>Đổi PIN</Button>
         <Button type="button" variant="ghost" size="sm" asChild><Link to="/tra-cuu-don">Tra cứu đơn</Link></Button>
+        <Button type="button" variant="ghost" size="sm" asChild><Link to="/bao-cao">Báo cáo riêng</Link></Button>
         <Button type="button" variant="ghost" size="sm" onClick={() => setAdminTab("don")}>Đơn hàng</Button>
         <Button type="button" variant="ghost" size="sm" onClick={() => setAdminTab("baocao")}>Báo cáo</Button>
       </div>
@@ -251,9 +258,7 @@ export function AdminPage() {
       ) : null}
 
       {ordersWarning ? (
-        <div className="mt-4 rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-950">
-          {ordersWarning}
-        </div>
+        <div className="mt-4 rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-950">{ordersWarning}</div>
       ) : null}
 
       <section className="mt-8 grid grid-cols-2 gap-3 sm:grid-cols-5">
@@ -380,7 +385,7 @@ export function AdminPage() {
 
       <h2 className="font-display mt-12 text-xl">Cấu hình Sheet</h2>
       <div className="mt-4 grid gap-3">
-        <Field label="Sheet ID"><Input value={sheetId} onChange={(e)=>setSheetId(e.target.value)} placeholder="1abc...xyz" /></Field>
+        <Field label="Sheet ID (sản phẩm)"><Input value={sheetId} onChange={(e)=>setSheetId(e.target.value)} /></Field>
         <Field label="Tab SP"><Input value={sheetName} onChange={(e)=>setSheetName(e.target.value)} /></Field>
         <Field label="gid"><Input value={gid} onChange={(e)=>setGid(e.target.value)} /></Field>
         <Field label="CSV URL"><Input value={csvUrl} onChange={(e)=>setCsvUrl(e.target.value)} /></Field>
@@ -400,6 +405,7 @@ export function AdminPage() {
           }}>CSV mẫu</Button>
         </div>
         <p className="text-sm text-muted-foreground">Nguồn: {source} · {products.length} SP · sắp hết {low} · hết {out}{warning?` · ${warning}`:""}</p>
+        <p className="text-xs text-muted-foreground">Đơn/báo cáo đọc từ Sheet <code>16nGPqH-8BesOPKqvyrZLsl07QZX_Ugpa0bIuKWyJcdU</code> · trang <Link className="underline" to="/bao-cao">/bao-cao</Link></p>
       </div>
       <h2 className="font-display mt-12 text-xl">Apps Script</h2>
       <pre className="mt-3 max-h-80 overflow-auto rounded-xl bg-foreground p-4 text-xs text-background">{scriptLoading?"Đang tải…":script}</pre>

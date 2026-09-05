@@ -11,13 +11,17 @@ import {
 const TZ = "Asia/Ho_Chi_Minh";
 const dayMs = 86400000;
 
-/** Parse thời gian đơn từ Sheet (ISO, dd/mm/yyyy, mm/dd/yyyy, serial Excel, tiếng Việt) */
+/**
+ * Parse thời gian đơn từ Sheet.
+ * QUAN TRỌNG: chuỗi kiểu 05/09/2026 phải là ngày 5 tháng 9 (VN),
+ * KHÔNG dùng new Date() trước vì JS hiểu mm/dd → 9 tháng 5.
+ */
 export function parseOrderTime(t: string): Date | null {
   if (!t) return null;
   const s = String(t).trim();
   if (!s) return null;
 
-  // Google Sheets serial date (số ngày từ 1899-12-30)
+  // Google Sheets serial date
   if (/^\d+(\.\d+)?$/.test(s)) {
     const n = Number(s);
     if (n > 20000 && n < 80000) {
@@ -27,34 +31,54 @@ export function parseOrderTime(t: string): Date | null {
     }
   }
 
-  try {
-    const d = new Date(s);
-    if (!Number.isNaN(d.getTime()) && d.getFullYear() > 2000 && d.getFullYear() < 2100) return d;
-  } catch {}
-
-  // dd/mm/yyyy hoặc d/m/yyyy (+ giờ)
-  let m = s.match(/(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{4})(?:[ T](\d{1,2}):(\d{2})(?::(\d{2}))?)?/);
+  // ISO / yyyy-mm-dd trước
+  let m = s.match(
+    /^(\d{4})-(\d{1,2})-(\d{1,2})(?:[ T](\d{1,2}):(\d{2})(?::(\d{2}))?)?/,
+  );
   if (m) {
-    const day = +m[1];
-    const mon = +m[2];
+    const dt = new Date(+m[1], +m[2] - 1, +m[3], +(m[4] || 0), +(m[5] || 0), +(m[6] || 0));
+    if (!Number.isNaN(dt.getTime())) return dt;
+  }
+
+  // dd/mm/yyyy hoặc d/m/yyyy (+ giờ) — ưu tiên kiểu Việt Nam
+  m = s.match(
+    /^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{4})(?:[ T](\d{1,2}):(\d{2})(?::(\d{2}))?)?/,
+  );
+  if (m) {
+    const a = +m[1];
+    const b = +m[2];
     const year = +m[3];
-    // Ưu tiên dd/mm nếu day > 12 hoặc format VN
-    if (day > 12 || mon <= 12) {
-      const dt = new Date(year, mon - 1, day, +(m[4] || 0), +(m[5] || 0), +(m[6] || 0));
-      if (!Number.isNaN(dt.getTime())) return dt;
+    const hh = +(m[4] || 0);
+    const mm = +(m[5] || 0);
+    const ss = +(m[6] || 0);
+    // Nếu a > 12 → chắc chắn a = ngày
+    // Nếu b > 12 → a = tháng, b = ngày (kiểu Mỹ hiếm trên Sheet VN)
+    // Mặc định VN: ngày/tháng
+    let day: number;
+    let mon: number;
+    if (a > 12 && b <= 12) {
+      day = a;
+      mon = b;
+    } else if (b > 12 && a <= 12) {
+      day = b;
+      mon = a;
+    } else {
+      // cả hai <= 12 → ưu tiên dd/mm (VN)
+      day = a;
+      mon = b;
     }
-    // fallback mm/dd
-    if (mon > 12 && day <= 12) {
-      const dt = new Date(year, day - 1, mon, +(m[4] || 0), +(m[5] || 0));
+    if (mon >= 1 && mon <= 12 && day >= 1 && day <= 31) {
+      const dt = new Date(year, mon - 1, day, hh, mm, ss);
       if (!Number.isNaN(dt.getTime())) return dt;
     }
   }
 
-  // yyyy-mm-dd
-  m = s.match(/(\d{4})-(\d{1,2})-(\d{1,2})(?:[ T](\d{1,2}):(\d{2})(?::(\d{2}))?)?/);
-  if (m) {
-    const dt = new Date(+m[1], +m[2] - 1, +m[3], +(m[4] || 0), +(m[5] || 0), +(m[6] || 0));
-    if (!Number.isNaN(dt.getTime())) return dt;
+  // ISO đầy đủ / các dạng khác (chỉ khi không khớp slash date)
+  if (!/[\/]/.test(s)) {
+    try {
+      const d = new Date(s);
+      if (!Number.isNaN(d.getTime()) && d.getFullYear() > 2000 && d.getFullYear() < 2100) return d;
+    } catch {}
   }
 
   return null;
@@ -78,18 +102,14 @@ function pct(a: number, b: number) {
 function aggOrders(orders: ShopOrder[], keys: Set<string>) {
   let count = 0;
   let rev = 0;
-  let unparsed = 0;
   for (const o of orders) {
     const dt = parseOrderTime(o.time);
-    if (!dt) {
-      unparsed++;
-      continue;
-    }
+    if (!dt) continue;
     if (!keys.has(dateKey(dt))) continue;
     count++;
     rev += parseOrderTotalNum(o.total);
   }
-  return { count, rev, aov: count ? rev / count : 0, unparsed };
+  return { count, rev, aov: count ? rev / count : 0 };
 }
 
 function keysForDays(startOffset: number, numDays: number) {
@@ -101,7 +121,6 @@ function keysForDays(startOffset: number, numDays: number) {
   return keys;
 }
 
-/** Tổng quan toàn bộ đơn đã tải (không lọc ngày) — khi parse ngày lỗi vẫn thấy số */
 export function computeAllTimeStats(orders: ShopOrder[]) {
   let count = 0;
   let rev = 0;
@@ -114,7 +133,6 @@ export function computeAllTimeStats(orders: ShopOrder[]) {
   return { count, rev, aov: count ? rev / count : 0, parsed, unparsed: count - parsed };
 }
 
-/** So sánh kỳ hiện tại vs kỳ trước cùng độ dài */
 export function computePeriodCompare(
   orders: ShopOrder[],
   days: number,
@@ -147,7 +165,6 @@ export function computePeriodCompare(
   };
 }
 
-/** Chỉ số tuyệt đối của Hôm qua (không gộp vào hôm nay) */
 export function computeYesterdayStats(orders: ShopOrder[]) {
   const keys = keysForDays(1, 1);
   const s = aggOrders(orders, keys);
@@ -214,7 +231,6 @@ export function computeTopItems(orders: ShopOrder[]) {
   return [...map.entries()].sort((a, b) => b[1] - a[1]).slice(0, 8);
 }
 
-/** Payload ghi tab BaoCao trên Google Sheet */
 export function buildReportSnapshot(orders: ShopOrder[]) {
   const day = computeDayCompare(orders);
   const yest = computeYesterdayStats(orders);

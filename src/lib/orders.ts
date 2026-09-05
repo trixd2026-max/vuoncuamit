@@ -7,18 +7,14 @@ export type ShopOrder = {
   phone: string;
   address: string;
   note: string;
-  /** Ghi chú nội bộ (chỉ shop) — cột Sheet GhiChuNoiBo */
   internalNote: string;
   total: string;
   items: string;
   type: string;
-  /** Trạng thái pipeline */
   status: string;
-  /** Log ngắn: Mới→Đã xác nhận 14:20 | … */
   statusLog: string;
 };
 
-/** Pipeline vận hành: Mới → Đã xác nhận → Đóng gói → Đang giao → Xong (+ Hủy) */
 export const ORDER_STATUSES = [
   "Mới",
   "Đã xác nhận",
@@ -77,7 +73,6 @@ export function normalizePhone(raw: string): string {
   return s;
 }
 
-/** SĐT lạ: không đúng format di động VN 10 số 03/05/07/08/09 */
 export function isWeirdPhone(phone: string): boolean {
   const p = normalizePhone(phone);
   if (!p) return true;
@@ -105,10 +100,12 @@ function headerKey(h: string) {
     .replace(/\s+/g, "_");
 }
 
+/** Map header Sheet → field (hỗ trợ Tong, SanPham, SDT của file báo cáo riêng) */
 const COL_MAP: Record<string, keyof ShopOrder> = {
   thoigian: "time",
   thoi_gian: "time",
   time: "time",
+  ngay: "time",
   madon: "orderId",
   ma_don: "orderId",
   orderid: "orderId",
@@ -132,10 +129,14 @@ const COL_MAP: Record<string, keyof ShopOrder> = {
   admin_note: "internalNote",
   tongtien: "total",
   tong_tien: "total",
+  tong: "total",
   total: "total",
   chitiet: "items",
   chi_tiet: "items",
   items: "items",
+  sanpham: "items",
+  san_pham: "items",
+  mon: "items",
   loai: "type",
   type: "type",
   trangthai: "status",
@@ -236,7 +237,6 @@ export type CustomerAgg = {
   notes: string[];
 };
 
-/** Gom khách theo SĐT từ danh sách đơn */
 export function aggregateCustomers(orders: ShopOrder[]): CustomerAgg[] {
   const map = new Map<string, CustomerAgg>();
   for (const o of orders) {
